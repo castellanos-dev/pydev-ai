@@ -1,0 +1,109 @@
+assess_state:
+  description: >
+    Analyze the current project state and identify files impacted by the requested changes.
+
+    Process:
+    1. Read existing digests from `.knowledge/digests` if available
+    2. Execute focused RAG search for files related to the user's change prompt
+    3. Identify all potentially impacted components and dependencies
+
+    Output JSON format:
+    {
+      "impacted": [str],
+      "notes": [str]
+    }
+
+    Follow flow limits: {flow_limits[token_cap_hint]}
+  expected_output: >
+    A JSON object containing the list of impacted file paths and detailed
+    analysis notes explaining the scope and reasoning behind the assessment.
+  agent: state_assessor
+
+plan_changes:
+  description: >
+    Create a comprehensive change plan based on the state assessment.
+
+    Develop a minimal but complete patch plan as a file map:
+    {"files": [{"path": str, "content": str}]}
+
+    Guidelines:
+    1. Only include files that need to be changed or added
+    2. Ensure changes maintain code consistency and quality
+    3. Consider dependencies and potential side effects
+    4. Optimize for minimal impact while achieving the desired outcome
+  expected_output: >
+    A JSON object containing the complete file map with all necessary
+    changes ready to be applied to the codebase.
+  agent: change_planner
+  context:
+    - assess_state
+
+apply_changes:
+  description: >
+    Apply all planned changes to the filesystem.
+
+    Write all files from the provided file map to their designated locations,
+    ensuring proper file permissions and directory structure creation.
+
+    Handle any file conflicts or permission issues gracefully.
+  expected_output: >
+    A concise log confirming that all files have been successfully updated
+    or created at their specified locations.
+  agent: code_modder
+  context:
+    - plan_changes
+
+quality_and_tests:
+  description: >
+    Execute comprehensive quality assurance checks on the updated codebase.
+
+    Quality checks include:
+    1. Code formatting with Black
+    2. Linting with Ruff for style and potential issues
+    3. Test execution with pytest (full suite or focused on changed areas)
+    4. Overall code quality assessment
+
+    Provide a detailed but compact report of all findings.
+  expected_output: >
+    A comprehensive report covering formatter results, linter findings,
+    and pytest outcomes with clear indication of any issues requiring attention.
+  agent: quality_guard
+  context:
+    - apply_changes
+
+debug_if_needed:
+  description: >
+    Address any test failures or quality issues identified in the previous step.
+
+    If tests fail or critical issues are found:
+    1. Analyze the root cause of failures
+    2. Propose minimal corrective changes as a file map
+    3. Apply fixes and re-test
+    4. Iterate at most {flow_limits[max_debug_loops]} times as per flow limits
+    5. Follow token limits: {flow_limits[token_cap_hint]}
+
+    Focus on targeted fixes rather than extensive refactoring.
+  expected_output: >
+    A pytest report showing final test results and, if corrections were needed,
+    a JSON patch file map documenting all applied fixes.
+  agent: debugger
+  context:
+    - quality_and_tests
+
+update_knowledge:
+  description: >
+    Update the project knowledge base with changes made during this iteration.
+
+    Knowledge updates include:
+    1. Refresh digests for all modified files
+    2. Re-index changed content in the vector database
+    3. Update project metadata and searchable information
+    4. Maintain consistency with existing knowledge artifacts
+
+    Process only files that were actually changed to optimize performance.
+  expected_output: >
+    A brief log detailing what knowledge artifacts were updated and
+    successfully re-indexed in the knowledge management system.
+  agent: summarizer
+  context:
+    - debug_if_needed

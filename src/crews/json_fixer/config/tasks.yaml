@@ -1,0 +1,31 @@
+fix_json:
+  description: >
+    Given the original malformed JSON and the expected schema description, output ONLY
+    the corrected JSON that strictly validates against the schema description. Remove any
+    commentary, markdown code fences, or trailing text. Do not invent fields beyond the schema.
+
+    Inputs:
+      - expected_kind: a keyword describing the target schema (e.g., "file_map", "code_design",
+        "code_output", "code_fixes_output")
+      - expected_schema: a brief plain description of the JSON structure, including keys and types
+      - original_text: the raw text received that failed JSON parsing
+
+    Rules:
+      - Output MUST be valid JSON and nothing else
+      - No markdown fences; no prose
+      - Adhere strictly to the expected_schema
+      - If lists are required, return a list (can be empty if unrecoverable)
+      - If objects are required, ensure required keys exist with reasonable defaults
+      - Preserve user intent when possible
+
+    You will receive these variables:
+      expected_kind:
+      ```{expected_kind}```
+      expected_schema:
+      ```{expected_schema}```
+      original_text:
+      ```{original_text}```
+
+  expected_output: >
+    Strict JSON only. No surrounding text. Must parse with json.loads.
+  agent: json_doctor

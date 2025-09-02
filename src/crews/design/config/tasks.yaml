@@ -1,0 +1,236 @@
+gather_requirements:
+  description: >
+    Generate a python software product specification given the following prompt:
+
+    `{new_project_prompt}`
+
+    Details:
+      - one_liner: A one-liner description of the product
+      - key_features: A list of high-level key features of the product. The
+        list should be concise but complete to be able to generate the software
+        product meeting the requirements. Keep it as short as possible. Do NOT
+        include implementation details, documentation or unit testing details.
+      - constraints: A list of constraints (empty if none).
+
+    FORBIDDEN:
+      - DO NOT include documentation or unit testing details.
+      - DO NOT include dependencies information in the key_features or the constraints.
+      - DO NOT include implementation details in the key_features or the constraints.
+      - Avoid being redundant between the key_features and the constraints.
+
+    COMPULSORY:
+      - The product will always be python code.
+
+    DESIRED:
+      - Use well-known libraries or frameworks if possible. Avoid reinventing the wheel.
+
+  expected_output: >
+    Output JSON format:
+    {
+      "one_liner": str,
+      "key_features": [str],
+      "constraints": [str],
+    }
+    Use compact language (english). Do not add prose outside JSON.
+  agent: requirements_analyst
+
+design_architecture:
+  description: >
+    Using the specification JSON, design a solid Python architecture and file plan that serves
+    as the blueprint for the entire project structure. Do not refer to an src directory,
+    just the files and packages. Do not include test, documentation or configuration files.
+
+    Details:
+      - packages: Packages to create. Do not add more packages than necessary. The
+        package names should be concise and descriptive. Do NOT include tests
+        packages.
+      - files: Files to create. Each file should have the list of functionalities
+        it should contain. Empty functionalities for _init_.py files. Do NOT
+        include documentation or unit testing details.
+
+    FORBIDDEN:
+      - DO NOT include documentation or unit testing details.
+      - DO NOT include dependencies information in the key_features or the constraints unless
+        provided in the specification JSON.
+      - Avoid being redundant.
+
+    DESIRED:
+      - Use well-known libraries or frameworks if possible. Avoid reinventing the wheel.
+      - SIMPLIFY the design.
+
+    COMPULSORY:
+      - Generate utils/common packages when the project implementation can be simplified.
+      - Keep the design as small as possible, ensuring that it completely meets the requirements.
+      - Keep concise in the descriptions.
+      - Empty functionalities for _init_.py files.
+
+    Deeply reason about the design and ensure that it is correct and complete.
+    Include __init__.py files for each package.
+
+  expected_output: >
+    Output JSON format:
+    {
+      "packages": [{"name": str, "key_features": [str], "constraints": [str]}],
+      "files": [{"path": str, "functionalities": [str]}],
+    }
+    Use compact language. Do not add prose outside JSON.
+  agent: software_architect
+  context:
+    - gather_requirements
+
+detailed_architecture:
+  description: >
+    Given the project structure and functionalities, design the classes and functions that will be implemented.
+    Keep a simple design.
+
+    Details:
+
+      - file_path: The path to the file to create.
+
+      - project_dependencies: "project.module.class" or "project.module.function". Do not include dependencies
+        that are not part of the project.
+
+      - classes: The classes to create. Empty if no classes are needed. Simple utility classes should be
+        avoided and substituted by functions.
+
+      - methods/functions: The functions to create. Empty if no functions are needed.
+
+      - functionalities: The functionalities to cover in the classes and functions. All the functionalities
+        of the input JSON must be covered. Further functionalities may be added if needed. Keep it short and concise.
+
+      - points: Deeply-reasoned implementation effort of the classes and functions:
+          * 1 for tasks that can be implemented by a junior developer.
+          * 2 for tasks that require a senior developer.
+          * 3 for tasks that require a lead developer.
+
+    COMPULSORY:
+      - Simplify the design. The use of classes and functions should be justified, keep the number of classes and
+        functions as low as possible.
+      - Simple and descriptive names for the classes and functions.
+      - Empty functionalities for _init_.py files.
+
+    DESIRED:
+      - Generate auxiliary functions when the project implementation can be simplified.
+      - Avoid circular dependencies.
+      - Avoid unnecessary complexity.
+
+  expected_output: >
+    Output JSON format:
+    {
+      "file_path": {
+        "project_dependencies": [str],
+        "classes": [{
+          "name": str,
+          "methods": [{
+            "name": str,
+            "parameters": [{"name": str, "type": str}],
+            "functionalities": [str],
+            "points": int,
+          }],
+          "parameters": [{"name": str, "type": str}],
+          "functionalities": [str],
+          "points": int,
+        }],
+        "functions": [{
+          "name": str,
+          "parameters": [{"name": str, "type": str}],
+          "functionalities": [str],
+          "points": int,
+        }]
+      },
+    }
+    Use compact language. Do not add prose outside JSON.
+  agent: software_architect
+  context:
+    - design_architecture
+
+task_assignment:
+  description: >
+    Input JSON format:
+    {
+      "file_path": {
+        "project_dependencies": [str],
+        "classes": [{
+          "name": str,
+          "methods": [{
+            "name": str,
+            "parameters": [{"name": str, "type": str}],
+            "functionalities": [str],
+            "points": int,
+          }],
+          "parameters": [{"name": str, "type": str}],
+          "functionalities": [str],
+          "points": int,
+        }],
+        "functions": [{
+          "name": str,
+          "parameters": [{"name": str, "type": str}],
+          "functionalities": [str],
+          "points": int,
+        }]
+      },
+    }
+
+    Your output will be a list of sets of files to be implemented by an independent developer (llm agent).
+    All the files in the set must be assigned to the same developer.
+
+    You dispose of as many developers as you need. There are 3 different levels of developers:
+      - 1: Junior Developer.
+      - 2: Senior Developer.
+      - 3: Lead Developer.
+
+    Use the points to assign the tasks to the appropriate developer. Optimize costs.
+
+    Criteria:
+      - The number of points indicates the complexity of the task. 1 is the lowest complexity and 3 is
+        the highest complexity.
+      - Related files should be assigned to the same developer since they work independently.
+      - Non-related files should be assigned to different developers. LLM agents must be
+        centered in a single task to prevent hallucinations.
+      - The developer level must be based on the complexity of the tasks.
+      - Do not create too big tasks. LLM agents have a limited context window.
+      - Do not create too small tasks. It would not be efficient to assign them to a developer.
+
+    COMPULSORY:
+      - All the input files must be included in the output JSON.
+      - Always assign the task to the lowest level developer that is able to complete the task.
+
+    FORBIDDEN:
+      - Do NOT add any additional files to the output JSON.
+      - __init__.py files cannot be independently assigned to a developer.
+
+    DESIRED:
+      - Optimize costs.
+
+  expected_output: >
+    Output JSON format:
+    [{
+      "developer": int,
+      "set_of_files": {
+        "file_path": {
+          "project_dependencies": [str],
+          "classes": [{
+            "name": str,
+            "methods": [{
+              "name": str,
+              "parameters": [{"name": str, "type": str}],
+              "functionalities": [str],
+              "points": int,
+            }],
+            "parameters": [{"name": str, "type": str}],
+            "functionalities": [str],
+            "points": int,
+          }],
+          "functions": [{
+            "name": str,
+            "parameters": [{"name": str, "type": str}],
+            "functionalities": [str],
+            "points": int,
+          }]
+        },
+      }
+    }]
+    Use compact language. Do not add prose outside JSON.
+  agent: project_manager
+  context:
+    - detailed_architecture

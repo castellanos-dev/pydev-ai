@@ -1,0 +1,23 @@
+integrate_fixes:
+  description: >
+    Integrate multiple partial fixes into the final full content of a file.
+
+    Inputs:
+      - original_code: code of the original file.
+      - code_fixes: list of objects with keys {"affected_callable", "fix"}
+
+    Rules:
+      - Apply all fixes to the original file code.
+      - The output MUST contain the complete final content of the file, never diffs.
+      - Preserve unrelated code and imports; only modify what's needed to implement fixes.
+      - If multiple fixes touch the same region, reconcile them sensibly to keep code valid.
+
+    You will receive these variables:
+      original_code:
+      ```{original_code}```
+      code_fixes:
+      ```{code_fixes}```
+
+  expected_output: >
+    The final content of the file. Do not add prose outside the file code.
+  agent: fix_integrator
