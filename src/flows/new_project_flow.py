@@ -3,7 +3,7 @@ import pathlib
 import subprocess
 import sys
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import glob
 from crewai.flow import Flow, start, listen
 from .utils import (
@@ -65,6 +65,21 @@ def _run_cmd(cmd: List[str], cwd: pathlib.Path) -> Dict[str, Any]:
         "stderr": completed.stderr,
         "returncode": completed.returncode,
     }
+
+
+def lint_and_format(code_dir: pathlib.Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Lint and format the codebase."""
+    # 1) Ruff auto-fix
+    _run_cmd([sys.executable, "-m", "ruff", "check", "--fix", "."], cwd=code_dir)
+
+    # 2) Black format
+    black_fmt = _run_cmd([sys.executable, "-m", "black", "."], cwd=code_dir)
+
+    # 3) Ruff final check (capture remaining issues)
+    ruff_check = _run_cmd([sys.executable, "-m", "ruff", "check", "."], cwd=code_dir)
+
+    return black_fmt, ruff_check
+
 
 class NewProjectFlow(Flow):
     """
@@ -152,10 +167,9 @@ class NewProjectFlow(Flow):
         }
 
     @listen(write_generated_code)
-    def lint_and_format(self, code_result: Dict[str, Any]) -> Dict[str, Any]:
-        """Lint and format the codebase."""
+    def apply_linting(self, code_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply linting to the codebase."""
         src_dir = pathlib.Path(self.out_dir) / "src"
-
         if not src_dir.exists():
             return {
                 "linting_skipped": True,
@@ -164,15 +178,7 @@ class NewProjectFlow(Flow):
                 "project_design": code_result["project_design"],
             }
 
-        # 1) Ruff auto-fix
-        _run_cmd([sys.executable, "-m", "ruff", "check", "--fix", "."], cwd=src_dir)
-
-        # 2) Black format
-        black_fmt = _run_cmd([sys.executable, "-m", "black", "."], cwd=src_dir)
-
-        # 3) Ruff final check (capture remaining issues)
-        ruff_check = _run_cmd([sys.executable, "-m", "ruff", "check", "."], cwd=src_dir)
-
+        black_fmt, ruff_check = lint_and_format(src_dir)
         return {
             "linting_skipped": False,
             "black_format": black_fmt,
@@ -180,7 +186,7 @@ class NewProjectFlow(Flow):
             "project_design": code_result["project_design"],
         }
 
-    @listen(lint_and_format)
+    @listen(apply_linting)
     def test_development(self, lint_result: Dict[str, Any]) -> Dict[str, Any]:
         """Unit tests generation"""
         project_info = lint_result["project_design"].copy()
@@ -213,8 +219,24 @@ class NewProjectFlow(Flow):
             "tests_written": list(tests_to_write.keys()),
         }
 
-    @listen(lint_and_format)
-    def lint_and_execute_tests(self, test_dev_result: Dict[str, Any]) -> Dict[str, Any]:
+    @listen(test_development)
+    def project_debugging(self, test_dev_result: Dict[str, Any]) -> Dict[str, Any]:
+        for _ in range(settings.MAX_TEST_RUN_ATTEMPTS):
+            test_result = self._lint_and_execute_tests(test_dev_result)
+            if test_result.get("returncode") != 0:
+                return {
+                    "project_design": test_dev_result.get("project_design"),
+                    "bug_analysis": [],
+                }
+            pytests_output_analysis = self._pytest_output_analysis(test_result)
+            involved_files = self._analyze_involved_files(pytests_output_analysis)
+            bug_analysis = self._bug_analysis(involved_files)
+        return {
+            "project_design": test_dev_result.get("project_design"),
+            "bug_analysis": bug_analysis,
+        }
+
+    def _lint_and_execute_tests(self, test_dev_result: Dict[str, Any]) -> Dict[str, Any]:
         """Auto-fix lint in tests/ and execute pytest, returning structured results."""
         repo_dir = pathlib.Path(self.out_dir)
         src_dir = repo_dir / "src"
@@ -222,17 +244,20 @@ class NewProjectFlow(Flow):
 
         tests_black_fmt: Dict[str, Any] | None = None
         tests_ruff_report: Dict[str, Any] | None = None
-        tests_linting_skipped = False
-        tests_linting_reason = ""
 
         if tests_dir.exists():
             # Ruff auto-fix and Black formatting scoped to tests/
-            _ = _run_cmd([sys.executable, "-m", "ruff", "check", "--fix", "."], cwd=tests_dir)
-            tests_black_fmt = _run_cmd([sys.executable, "-m", "black", "."], cwd=tests_dir)
-            tests_ruff_report = _run_cmd([sys.executable, "-m", "ruff", "check", "."], cwd=tests_dir)
+            tests_black_fmt, tests_ruff_report = lint_and_format(tests_dir)
         else:
-            tests_linting_skipped = True
-            tests_linting_reason = f"Tests directory not found: {tests_dir}"
+            return {
+                "tests_dir": str(tests_dir),
+                "tests_linting_skipped": True,
+                "tests_linting_reason": f"Tests directory not found: {tests_dir}",
+                "project_design": test_dev_result.get("project_design"),
+                "tests_black_format": None,
+                "tests_ruff_report": None,
+                "pytest_output": None,
+            }
 
         # Execute pytest from repo root; ensure PYTHONPATH includes src/
         env = os.environ.copy()
@@ -261,32 +286,30 @@ class NewProjectFlow(Flow):
                 "cmd": "python -m pytest -q",
                 "stdout": "",
                 "stderr": f"Timeout after {settings.PYTEST_TIMEOUT} seconds",
-                "returncode": -1,
+                "returncode": -2,  # TODO: handle this
             }
         except Exception as e:
             pytest_result = {
                 "cmd": "python -m pytest -q",
                 "stdout": "",
                 "stderr": f"Error: {e}",
-                "returncode": -1,
+                "returncode": -1,  # TODO: handle this
             }
 
         return {
             "tests_dir": str(tests_dir),
-            "tests_linting_skipped": tests_linting_skipped,
-            "tests_linting_reason": tests_linting_reason,
+            "tests_linting_skipped": False,
             "tests_black_format": tests_black_fmt,
             "tests_ruff_report": tests_ruff_report,
             "pytest_output": pytest_result,
             "project_design": test_dev_result.get("project_design"),
         }
 
-    @listen(lint_and_execute_tests)
-    def pytest_output_analysis(self, test_dev_result: Dict[str, Any]) -> Dict[str, Any]:
+    def _pytest_output_analysis(self, test_result: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze the pytest output."""
         pytest_output_analysis = PytestOutputAnalysisCrew().crew().kickoff(
             inputs={
-                "pytest_output": test_dev_result.get("pytest_output", {}),
+                "pytest_output": test_result.get("pytest_output", {}),
             }
         )
 
@@ -319,8 +342,7 @@ class NewProjectFlow(Flow):
             "flat_output_analysis": flat_groups,
         }
 
-    @listen(pytest_output_analysis)
-    def analyze_involved_files(self, pytests_output_analysis: Dict[str, Any]) -> Dict[str, Any]:
+    def _analyze_involved_files(self, pytests_output_analysis: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze the involved files."""
 
         if len(pytests_output_analysis.get("flat_output_analysis", [])) == 0:
@@ -377,8 +399,7 @@ class NewProjectFlow(Flow):
             "debug_info": enriched
         }
 
-    @listen(analyze_involved_files)
-    def bug_analysis(self, involved_files_result: Dict[str, Any]) -> Dict[str, Any]:
+    def _bug_analysis(self, involved_files_result: Dict[str, Any]) -> Dict[str, Any]:
         """Debug the project."""
 
         # If pytest succeeded, skip debugging

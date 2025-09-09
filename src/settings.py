@@ -21,3 +21,5 @@ DEFAULT_KNOWLEDGE_ROOT = "data/knowledge"
 
 # Tool timeouts (in seconds)
 PYTEST_TIMEOUT = int(os.getenv("PYTEST_TIMEOUT", "1800"))  # 30 minutes default
+
+MAX_TEST_RUN_ATTEMPTS = int(os.getenv("MAX_TEST_RUN_ATTEMPTS", "3"))
