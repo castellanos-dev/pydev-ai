@@ -1,0 +1,52 @@
+generate_tests:
+  description: >
+
+    Project to test:
+
+    ```
+    {project}
+    ```
+
+
+    Generate unit tests for the provided project code. Use pytest style.
+    Follow best practices: clear arrangement/act/assert, avoid mocking internals
+    unnecessarily, ensure that the callables work as expected and non-expected inputs or
+    edge cases. Ensure imports work relative to the project layout.
+
+    Input JSON (project):
+      {
+        "file_path": {
+          "project_dependencies": [str],
+          "classes": [{"name": str, "methods": [{"name": str}], "points": int}],
+          "functions": [{"name": str, "points": int}]
+        }
+      }
+
+    Output tests should live under tests/ mirroring module paths, using
+    filenames starting with test_. Keep tests concise and deterministic.
+
+    FORBIDDEN:
+      - Do NOT include any test for _init_.py files.
+      - Do NOT cover private methods or functions.
+
+    COMPULSORY:
+      - Cover the main functionalities of the project.
+      - Cover the non-expected inputs or edge cases.
+      - Generate a low number of tests.
+
+    DESIRED:
+      - Keep the tests concise, simple and short.
+
+    OPTIONAL:
+      - conftest.py files are allowed if they are necessary.
+
+    Include __init__.py files in each test folder. Content must be empty for __init__.py files.
+
+  expected_output: >
+    Output JSON format:
+    [{
+      "path": str,
+      "content": str
+    }]
+    Use compact language. Do not add prose outside JSON.
+  agent: test_generator

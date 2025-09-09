@@ -7,6 +7,6 @@ from .. import settings
 def llms(**kwargs: Any) -> Dict[str, LLM]:
     """Return CrewAI LLM instances."""
     return {
-        "light": LLM(model=settings.OPENAI_MODEL_LIGHT, **kwargs),
-        "reasoning": LLM(model=settings.OPENAI_MODEL_REASONING, **kwargs),
+        "light": LLM(model=settings.MODEL_LIGHT, **kwargs),
+        "reasoning": LLM(model=settings.MODEL_REASONING, **kwargs),
     }

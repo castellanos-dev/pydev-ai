@@ -1,0 +1,28 @@
+analyze_involved_files:
+  description: >
+    Project files:
+    ```
+    {code_files}
+    ```
+    Test files:
+    ```
+    {test_files}
+    ```
+
+    Pytest output:
+    ```
+    {flat_output_analysis}
+    ```
+
+    Analyze the failure output and identify the files that must be reviewed to
+    fix the failure. The goal is to identify the minimal set of files whose code must
+    be reviewed to fix the failure.
+
+  expected_output: >
+    Output JSON format:
+    [{
+      "file_path": [str|null], "affected_callable": [str|null], "error": [str], "traceback": [str],
+      "involved_files": [str]
+    }]
+    Use compact language. Do not add prose outside JSON.
+  agent: analyst

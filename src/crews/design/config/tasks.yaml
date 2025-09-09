@@ -194,6 +194,7 @@ task_assignment:
     COMPULSORY:
       - All the input files must be included in the output JSON.
       - Always assign the task to the lowest level developer that is able to complete the task.
+      - Make sure all project internal dependencies are covered.
 
     FORBIDDEN:
       - Do NOT add any additional files to the output JSON.

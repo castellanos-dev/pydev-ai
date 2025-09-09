@@ -1,0 +1,26 @@
+analyze_test_failures:
+  description: >
+
+    Debug info:
+    ```
+    {debug_info}
+    ```
+    Analyze the detailed failure information and identify the root cause and a minimal
+    action plan per case.
+
+    Details:
+
+      - file_paths: The paths to the files with the issue.
+      - affected_callables: The callables that are affected by the issue. "project.module.class",
+        "project.module.class.method" or "project.module.function". Do not include callable that are
+        not part of the project.
+      - points: The implementation effort of the issue. 1 is the lowest effort and 3 is the highest effort.
+      - description: The description of the issue. Concise and to the point.
+      - fix: The fix for the issue. Prose action plan to fix the issue. Concise and to the point.
+
+  expected_output: >
+    Output JSON format:
+    [{"file_paths": [str], "affected_callables": [str],
+      "points": int, "description": str, "fix": str}]
+    Use compact language. Do not add prose outside JSON.
+  agent: analyst

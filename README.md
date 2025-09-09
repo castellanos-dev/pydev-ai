@@ -93,8 +93,8 @@ By default they are read from your environment or from `.env` (thanks to `python
 |---------|-------------|------------------|--------------------------|
 | `OPENAI_API_KEY` | OpenAI API key | "" | "" (you must set it) |
 | `LOG_LEVEL` | Logging level | `INFO` | `INFO` |
-| `OPENAI_MODEL_LIGHT` | Light model | `gpt-5-nano` | `gpt-4o-mini` |
-| `OPENAI_MODEL_REASONING` | Reasoning model | `gpt-5-nano` | `gpt-4o` |
+| `MODEL_LIGHT` | Light model | `gpt-5-nano` | `gpt-4o-mini` |
+| `MODEL_REASONING` | Reasoning model | `gpt-5-nano` | `gpt-4o` |
 | `EMBEDDING_MODEL` | Embedding model | `text-embedding-3-small` | `text-embedding-3-small` |
 | `PYTEST_TIMEOUT` | pytest timeout (s) | `1800` | `1800` |
 

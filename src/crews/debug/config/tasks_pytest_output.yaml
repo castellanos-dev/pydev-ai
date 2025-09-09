@@ -1,0 +1,43 @@
+parse_pytest_output:
+  description: >
+
+    Pytest output:
+    ```
+    {pytest_output}
+    ```
+
+    Process the pytest result (stdout/stderr/returncode) and return ONLY
+    the failed tests as a list. One element per failed test.
+
+    Each element must be deduplicated and contain:
+      - file_path: file path where the failure occurred (if deducible)
+      - affected_callable: affected function or method (module[.Class][.method]) if deducible
+      - error: the specific error message (assert/exception)
+      - traceback: the full error trace
+
+    Do not include passed tests or summaries. If there are no failures, return [] exactly.
+  expected_output: >
+    Output JSON format:
+    [{"file_path": str|null, "affected_callable": str|null, "error": str, "traceback": str}]
+    Use compact language. Do not add prose outside JSON.
+  agent: reporter
+
+group_failures_by_root_cause:
+  description: >
+    From the parsed failures list, group those that share
+    the same root cause to reduce the number of required fixes.
+
+    Grouping criteria (heuristics):
+      - Same affected_callable or file_path when traceback and message are similar
+      - Equivalent error messages or minor variations
+      - Matches in key traceback lines
+
+  expected_output: >
+    Output JSON format:
+    [{
+      "file_path": [str|null], "affected_callable": [str|null], "error": [str], "traceback": [str]
+    }]
+    Use compact language. Do not add prose outside JSON.
+  agent: grouper
+  context:
+    - parse_pytest_output

@@ -7,6 +7,42 @@ from ..summaries.summarizer import bootstrap_digest
 from ..crews.json_fixer import JSONFixerCrew
 
 
+def sanitize_generated_content(text: str) -> str:
+    """
+    Normalize LLM-generated file contents before writing to disk.
+
+    - Strip surrounding code fences if present (```...``` with optional language)
+    - Convert visible escape sequences (e.g., "\n", "\t") into real characters
+    - Ensure trailing newline at EOF (common convention for linters)
+    """
+    if not isinstance(text, str):
+        text = str(text)
+
+    s = text.strip()
+
+    # Strip triple backtick fences if present
+    if s.startswith("```"):
+        # remove opening fence line
+        lines = s.splitlines()
+        if lines:
+            # drop first line (``` or ```lang)
+            lines = lines[1:]
+        # remove closing fence line if present at end
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        s = "\n".join(lines)
+
+    # Unescape common sequences if they are literal
+    # Only apply if string contains backslash-n or backslash-t patterns
+    if "\\n" in s or "\\t" in s or "\\r" in s:
+        s = s.encode("utf-8").decode("unicode_escape")
+
+    # Ensure single trailing newline
+    if not s.endswith("\n"):
+        s = s + "\n"
+
+    return s
+
 def ensure_repo(repo: str) -> Union[None, str]:
     """
     Initialize repository directory if needed.
@@ -218,6 +254,35 @@ def parse_code_output(text: str) -> List[Dict[str, str]]:
     return obj
 
 
+def parse_test_output(text: str) -> List[Dict[str, str]]:
+    """
+    Parse the unit tests output from the test generation crews.
+
+    Expected JSON shape:
+      [{"path": str, "content": str}]
+    """
+    expected_kind = "test_output"
+    expected_schema = "List of objects: {\"path\": str, \"content\": str}"
+    obj: Any
+    if len(text) <= 2:
+        return []
+    try:
+        obj = json.loads(text)
+    except Exception:
+        fixed = _fix_json_text(text, expected_kind, expected_schema)
+        obj = json.loads(fixed)
+    if not isinstance(obj, list) or not all(
+        isinstance(item, dict) and "path" in item and "content" in item for item in obj
+    ):
+        fixed = _fix_json_text(text, expected_kind, expected_schema)
+        obj = json.loads(fixed)
+        if not isinstance(obj, list) or not all(
+            isinstance(item, dict) and "path" in item and "content" in item for item in obj
+        ):
+            raise ValueError(f"Invalid JSON after fix attempt: {text}")
+    return obj
+
+
 def parse_code_fixes_output(text: str) -> List[Dict[str, str]]:
     """
     Parse the code fixes output from the text.
@@ -253,6 +318,132 @@ def parse_code_fixes_output(text: str) -> List[Dict[str, str]]:
             raise ValueError(f"Invalid JSON after fix attempt: {text}")
     return obj
 
+
+def parse_pytest_groups_output(text: str) -> List[Dict[str, Any]]:
+    """
+    Parse the grouped failures list produced by PytestOutputAnalysisCrew.
+
+    Expected JSON shape:
+      [{"file_path": [str|null], "affected_callable": [str|null], "error": [str], "traceback": [str]}]
+    """
+    expected_kind = "pytest_grouped_failures_output"
+    expected_schema = (
+        'List of objects: {"file_path": [str|null], "affected_callable": [str|null], "error": [str], "traceback": [str]}'
+    )
+    obj: Any
+    if len(text) <= 2:
+        return []
+    try:
+        obj = json.loads(text)
+    except Exception:
+        fixed = _fix_json_text(text, expected_kind, expected_schema)
+        obj = json.loads(fixed)
+
+    def _looks_like_group(item: Any) -> bool:
+        if not isinstance(item, dict):
+            return False
+        for key in ["file_path", "affected_callable", "error", "traceback"]:
+            if key not in item:
+                return False
+        return True
+
+    if not isinstance(obj, list) or not all(_looks_like_group(it) for it in obj):
+        fixed = _fix_json_text(text, expected_kind, expected_schema)
+        obj = json.loads(fixed)
+        if not isinstance(obj, list) or not all(_looks_like_group(it) for it in obj):
+            raise ValueError(f"Invalid JSON after fix attempt: {text}")
+    return obj
+
+
+def parse_involved_files_output(text: str) -> List[Dict[str, Any]]:
+    """
+    Parse the involved files output from AnalyzeInvolvedFilesCrew.
+
+    Expected JSON shape:
+      [{"file_path": [str|null], "affected_callable": [str|null], "error": [str], "traceback": [str], "involved_files": [str]}]
+    """
+    expected_kind = "involved_files_output"
+    expected_schema = (
+        'List of objects: {"file_path": [str|null], "affected_callable": [str|null], '
+        '"error": [str], "traceback": [str], "involved_files": [str]}'
+    )
+    obj: Any
+    if len(text) <= 2:
+        return []
+    try:
+        obj = json.loads(text)
+    except Exception:
+        fixed = _fix_json_text(text, expected_kind, expected_schema)
+        obj = json.loads(fixed)
+
+    def _looks_like_item(item: Any) -> bool:
+        if not isinstance(item, dict):
+            return False
+        # Required keys must be lists
+        for key in ["involved_files"]:
+            if key not in item or not isinstance(item[key], list):
+                return False
+        # Optional keys should be lists when present
+        for key in ["file_path", "affected_callable", "error", "traceback"]:
+            if key not in item:
+                return False
+        return True
+
+    if not isinstance(obj, list) or not all(_looks_like_item(it) for it in obj):
+        fixed = _fix_json_text(text, expected_kind, expected_schema)
+        obj = json.loads(fixed)
+        if not isinstance(obj, list) or not all(_looks_like_item(it) for it in obj):
+            raise ValueError(f"Invalid JSON after fix attempt: {text}")
+    return obj
+
+
+def parse_bug_analysis_output(text: str) -> List[Dict[str, Any]]:
+    """
+    Parse the bug analysis output from BugAnalysisCrew.
+
+    Expected JSON shape:
+      [{
+        "file_paths": [str],
+        "affected_callables": [str],
+        "points": int,
+        "description": str,
+        "fix": str
+      }]
+    """
+    expected_kind = "bug_analysis_output"
+    expected_schema = (
+        'List of objects: {"file_paths": [str], "affected_callables": [str], '
+        '"points": int, "description": str, "fix": str}'
+    )
+    obj: Any
+    if len(text) <= 2:
+        return []
+    try:
+        obj = json.loads(text)
+    except Exception:
+        fixed = _fix_json_text(text, expected_kind, expected_schema)
+        obj = json.loads(fixed)
+
+    def _looks_like_item(item: Any) -> bool:
+        if not isinstance(item, dict):
+            return False
+        if "file_paths" not in item or not isinstance(item["file_paths"], list):
+            return False
+        if "affected_callables" not in item or not isinstance(item["affected_callables"], list):
+            return False
+        if "points" not in item or not isinstance(item["points"], int):
+            return False
+        for key in ["description", "fix"]:
+            if key not in item or not isinstance(item[key], str):
+                return False
+        return True
+
+    if not isinstance(obj, list) or not all(_looks_like_item(it) for it in obj):
+        fixed = _fix_json_text(text, expected_kind, expected_schema)
+        obj = json.loads(fixed)
+        if not isinstance(obj, list) or not all(_looks_like_item(it) for it in obj):
+            raise ValueError(f"Invalid JSON after fix attempt: {text}")
+    return obj
 
 def _fix_json_text(original_text: str, expected_kind: str, expected_schema: str) -> str:
     """
