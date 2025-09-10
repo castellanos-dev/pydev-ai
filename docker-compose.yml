@@ -5,7 +5,8 @@ services:
       dockerfile: docker/Dockerfile
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - MODEL_LIGHT=${MODEL_LIGHT:-gpt-5-mini}
+      - MODEL_LIGHT=${MODEL_LIGHT:-gpt-5-nano}
+      - MODEL_MEDIUM=${MODEL_MEDIUM:-gpt-5-mini}
       - MODEL_REASONING=${MODEL_REASONING:-gpt-5}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

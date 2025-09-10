@@ -19,8 +19,6 @@ fix_json:
       - Preserve user intent when possible
 
     You will receive these variables:
-      expected_kind:
-      ```{expected_kind}```
       expected_schema:
       ```{expected_schema}```
       original_text:

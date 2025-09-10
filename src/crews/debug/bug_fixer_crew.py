@@ -1,8 +1,8 @@
 from __future__ import annotations
-from typing import List
-from crewai import Agent, Task, Crew, Process
+from crewai import Task, Crew, Process
 from crewai.project import crew, task
 from .crew import BaseDebugCrew
+from .output_format.bug_fixes import ImplementBugFixesOutput
 
 
 class BaseBugFixerCrew(BaseDebugCrew):
@@ -14,7 +14,10 @@ class BaseBugFixerCrew(BaseDebugCrew):
 
     @task
     def implement_bug_fixes(self) -> Task:
-        return Task(config=self.tasks_config["implement_bug_fixes"])  # type: ignore[index]
+        return Task(
+            config=self.tasks_config["implement_bug_fixes"],  # type: ignore[index]
+            output_json=ImplementBugFixesOutput,
+        )
 
     @crew
     def crew(self) -> Crew:
@@ -36,7 +39,7 @@ class JuniorBugFixerCrew(BaseBugFixerCrew):
 class SeniorBugFixerCrew(BaseBugFixerCrew):
     def __init__(self):
         super().__init__()
-        self.llm_bug_fixer = self.llm_reasoning
+        self.llm_bug_fixer = self.llm_medium
 
 
 class LeadBugFixerCrew(BaseBugFixerCrew):

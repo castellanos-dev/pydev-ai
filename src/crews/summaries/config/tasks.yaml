@@ -177,10 +177,10 @@ summarize_modules:
 
   expected_output: >-
     Output JSON:
-      [{
+      {'root': [{
         "path": str,
         "content": str
-      }]
+      }]}
     Return only valid JSON. Do not add prose outside JSON.
   agent: module_summarizer
   context:

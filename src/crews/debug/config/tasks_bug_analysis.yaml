@@ -1,10 +1,25 @@
 analyze_test_failures:
   description: >
 
+    EXISTING Project files:
+    ```
+    {code_files}
+    ```
+    EXISTING Test files:
+    ```
+    {test_files}
+    ```
+
     Debug info:
     ```
     {debug_info}
     ```
+
+    File contents:
+    ```
+    {file_contents}
+    ```
+
     Analyze the detailed failure information and identify the root cause and a minimal
     action plan per case.
 
@@ -20,7 +35,14 @@ analyze_test_failures:
 
   expected_output: >
     Output JSON format:
-    [{"file_paths": [str], "affected_callables": [str],
-      "points": int, "description": str, "fix": str}]
+    {'root':
+      [{
+        "file_paths": [str],
+        "affected_callables": [str],
+        "points": int,
+        "description": str,
+        "fix": str
+      }]
+    }
     Use compact language. Do not add prose outside JSON.
   agent: analyst

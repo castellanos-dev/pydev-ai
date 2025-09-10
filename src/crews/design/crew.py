@@ -4,6 +4,7 @@ from crewai import Agent, Task, Crew, Process
 from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from ...utils.routing import llms
+from .output_format.task_assignment import TaskAssignmentOutput
 
 
 @CrewBase
@@ -17,6 +18,7 @@ class ProjectDesignCrew:
 
     def __init__(self):
         self.llm_light = llms()["light"]
+        self.llm_medium = llms()["medium"]
         self.llm_reasoning = llms()["reasoning"]
 
     # Agents
@@ -24,7 +26,7 @@ class ProjectDesignCrew:
     def requirements_analyst(self) -> Agent:
         return Agent(
             config=self.agents_config["requirements_analyst"],  # type: ignore[index]
-            llm=self.llm_reasoning,
+            llm=self.llm_medium,
             verbose=True,
         )
 
@@ -40,7 +42,7 @@ class ProjectDesignCrew:
     def project_manager(self) -> Agent:
         return Agent(
             config=self.agents_config["project_manager"],  # type: ignore[index]
-            llm=self.llm_light,
+            llm=self.llm_medium,
             verbose=True,
         )
 
@@ -59,7 +61,10 @@ class ProjectDesignCrew:
 
     @task
     def task_assignment(self) -> Task:
-        return Task(config=self.tasks_config["task_assignment"])  # type: ignore[index]
+        return Task(
+            config=self.tasks_config["task_assignment"],
+            output_json=TaskAssignmentOutput,
+        )
 
     @crew
     def crew(self) -> Crew:

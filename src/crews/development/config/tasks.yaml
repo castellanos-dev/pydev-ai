@@ -17,10 +17,10 @@ generate_code:
     `{project_design}`
   expected_output: >
     Output JSON format:
-    [{
+    {'root': [{
       "path": str,
       "content": str
-    }]
+    }]}
     Use compact language. Do not add prose outside JSON.
   agent: code_generator
 
@@ -99,11 +99,11 @@ debug_if_needed:
       - Each output fix should map a input fix.
   expected_output: >
     Output JSON format:
-    [{
+    {'root': [{
       "file_path": str,
       "affected_callable": str,
       "fix": str
-    }]
+    }]}
     Use compact language. Do not add prose outside JSON.
   agent: debugger
   context:

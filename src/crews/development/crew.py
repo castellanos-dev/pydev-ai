@@ -4,10 +4,9 @@ from crewai import Agent, Task, Crew, Process, TaskOutput
 from crewai.tasks.conditional_task import ConditionalTask
 from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
-from crewai_tools import FileReadTool, DirectoryReadTool
-from ...tools.test_runner import RunPytestTool
-from ...tools.rag_tools import RAGIndexTool
 from ...utils.routing import llms
+from .output_format.generate_code import GenerateCodeOutput
+from .output_format.debug_if_needed import DebugIfNeededOutput
 
 
 def is_something_to_fix(output: TaskOutput) -> bool:
@@ -27,12 +26,8 @@ class JuniorDevelopmentCrew:
     tasks: List[Task]
 
     def __init__(self):
-        self.read = FileReadTool()
-        self.pytest = RunPytestTool()
-        self.ls = DirectoryReadTool()
-        self.rag_index = RAGIndexTool()
-
         self.llm_light = llms()["light"]
+        self.llm_medium = llms()["medium"]
         self.llm_reasoning = llms()["reasoning"]
 
         self.llm_developer = llms()["light"]
@@ -50,7 +45,7 @@ class JuniorDevelopmentCrew:
     def reviewer(self) -> Agent:
         return Agent(
             config=self.agents_config["reviewer"],  # type: ignore[index]
-            llm=self.llm_reasoning,
+            llm=self.llm_medium,
             verbose=True,
         )
 
@@ -58,13 +53,16 @@ class JuniorDevelopmentCrew:
     def debugger(self) -> Agent:
         return Agent(
             config=self.agents_config["debugger"],  # type: ignore[index]
-            llm=self.llm_reasoning,
+            llm=self.llm_medium,
             verbose=True,
         )
 
     @task
     def generate_code(self) -> Task:
-        return Task(config=self.tasks_config["generate_code"])  # type: ignore[index]
+        return Task(
+            config=self.tasks_config["generate_code"],  # type: ignore[index]
+            output_json=GenerateCodeOutput,
+        )
 
     @task
     def code_review(self) -> Task:
@@ -75,7 +73,8 @@ class JuniorDevelopmentCrew:
         return ConditionalTask(
             config=self.tasks_config["debug_if_needed"],
             condition=is_something_to_fix,
-        )  # type: ignore[index]
+            output_json=DebugIfNeededOutput,
+        )
 
     @crew
     def crew(self) -> Crew:
@@ -100,7 +99,7 @@ class SeniorDevelopmentCrew(JuniorDevelopmentCrew):
 
     def __init__(self):
         super().__init__()
-        self.llm_developer = llms()["reasoning"]
+        self.llm_developer = llms()["medium"]
 
 
 class LeadDevelopmentCrew(JuniorDevelopmentCrew):

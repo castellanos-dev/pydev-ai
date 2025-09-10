@@ -4,7 +4,7 @@ integrate_fixes:
 
     Inputs:
       - original_code: code of the original file.
-      - code_fixes: list of objects with keys {"affected_callable", "fix"}
+      - code_fixes: list of changes to apply to the file.
 
     Rules:
       - Apply all fixes to the original file code.

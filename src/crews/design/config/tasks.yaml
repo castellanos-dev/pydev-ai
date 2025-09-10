@@ -205,7 +205,7 @@ task_assignment:
 
   expected_output: >
     Output JSON format:
-    [{
+    {'root': [{
       "developer": int,
       "set_of_files": {
         "file_path": {
@@ -230,7 +230,7 @@ task_assignment:
           }]
         },
       }
-    }]
+    }]}
     Use compact language. Do not add prose outside JSON.
   agent: project_manager
   context:

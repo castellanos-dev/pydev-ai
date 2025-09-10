@@ -15,15 +15,28 @@ implement_bug_fixes:
     changes to resolve it, maintaining compatibility and without introducing new
     dependencies.
 
+    The result is a list of file changes to be applied to the project.
+
     Rules:
       - Follow the action plan to fix the bug
       - Prioritize minimal, localized changes
       - Do not modify tests unless the specification is clearly wrong
       - Respect the project's formatting and style
+      - Provide a diff for the file content.
+
+    Details:
+      - path: The path to the file to change.
+      - content_diff: The diff to apply to the file.
 
     If no change is required, return [] exactly.
+
   expected_output: >
     Output JSON format:
-    [{"path": str, "content": str}]
+    {
+      'root': [{
+        "path": str,
+        "content_diff": str
+      }]
+    }
     Use compact language. Do not add prose outside JSON.
   agent: bug_fixer

@@ -19,7 +19,6 @@ class FixIntegratorCrew:
 
     def __init__(self):
         self.llm_light = llms()["light"]
-        self.llm_reasoning = llms()["reasoning"]
 
     @agent
     def fix_integrator(self) -> Agent:

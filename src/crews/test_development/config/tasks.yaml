@@ -7,7 +7,6 @@ generate_tests:
     {project}
     ```
 
-
     Generate unit tests for the provided project code. Use pytest style.
     Follow best practices: clear arrangement/act/assert, avoid mocking internals
     unnecessarily, ensure that the callables work as expected and non-expected inputs or
@@ -44,9 +43,9 @@ generate_tests:
 
   expected_output: >
     Output JSON format:
-    [{
+    {'root': [{
       "path": str,
       "content": str
-    }]
+    }]}
     Use compact language. Do not add prose outside JSON.
   agent: test_generator

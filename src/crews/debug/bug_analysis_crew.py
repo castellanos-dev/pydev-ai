@@ -2,6 +2,7 @@ from __future__ import annotations
 from crewai import Task, Crew, Process
 from crewai.project import crew, task
 from .crew import BaseDebugCrew
+from .output_format.bug_analysis import AnalyzeTestFailuresOutput
 
 
 class BugAnalysisCrew(BaseDebugCrew):
@@ -12,7 +13,10 @@ class BugAnalysisCrew(BaseDebugCrew):
 
     @task
     def analyze_test_failures(self) -> Task:
-        return Task(config=self.tasks_config["analyze_test_failures"])  # type: ignore[index]
+        return Task(
+            config=self.tasks_config["analyze_test_failures"],  # type: ignore[index]
+            output_json=AnalyzeTestFailuresOutput,
+        )
 
     @crew
     def crew(self) -> Crew:

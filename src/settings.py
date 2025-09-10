@@ -11,7 +11,8 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 # LLM models
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 MODEL_LIGHT = os.getenv("MODEL_LIGHT", "gpt-5-nano")
-MODEL_REASONING = os.getenv("MODEL_REASONING", "gpt-5-nano")
+MODEL_MEDIUM = os.getenv("MODEL_MEDIUM", "gpt-5-mini")
+MODEL_REASONING = os.getenv("MODEL_REASONING", "gpt-5")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 # Knowledge paths

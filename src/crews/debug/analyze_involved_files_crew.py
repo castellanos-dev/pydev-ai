@@ -2,6 +2,7 @@ from __future__ import annotations
 from crewai import Task, Crew, Process
 from crewai.project import crew, task
 from .crew import BaseDebugCrew
+from .output_format.analyze_involved_files import AnalyzeInvolvedFilesOutput
 
 
 class AnalyzeInvolvedFilesCrew(BaseDebugCrew):
@@ -12,7 +13,10 @@ class AnalyzeInvolvedFilesCrew(BaseDebugCrew):
 
     @task
     def analyze_involved_files(self) -> Task:
-        return Task(config=self.tasks_config["analyze_involved_files"])  # type: ignore[index]
+        return Task(
+            config=self.tasks_config["analyze_involved_files"],  # type: ignore[index]
+            output_json=AnalyzeInvolvedFilesOutput,
+        )
 
     @crew
     def crew(self) -> Crew:

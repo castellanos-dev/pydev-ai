@@ -1,14 +1,10 @@
 from __future__ import annotations
-from crewai import Task, Crew, Process, TaskOutput
+from crewai import Task, Crew, Process
+from ...flows.utils import is_something_to_fix
 from crewai.tasks.conditional_task import ConditionalTask
 from crewai.project import crew, task
 from .crew import BaseDebugCrew
-
-
-def is_something_to_fix(output: TaskOutput) -> bool:
-    # "[]" is not a valid output
-    output = str(output)
-    return len(output) > 2  and '{' in output and '}' in output and 'error' in output
+from .output_format.pytest_output import GroupFailuresByRootCause
 
 
 class PytestOutputAnalysisCrew(BaseDebugCrew):
@@ -20,14 +16,15 @@ class PytestOutputAnalysisCrew(BaseDebugCrew):
     # Tasks
     @task
     def parse_pytest_output(self) -> Task:
-        return Task(config=self.tasks_config["parse_pytest_output"])  # type: ignore[index]
+        return Task(config=self.tasks_config["parse_pytest_output"])
 
     @task
     def group_failures_by_root_cause(self) -> Task:
         return ConditionalTask(
             config=self.tasks_config["group_failures_by_root_cause"],
             condition=is_something_to_fix,
-        )  # type: ignore[index]
+            output_json=GroupFailuresByRootCause,
+        )
 
     @crew
     def crew(self) -> Crew:

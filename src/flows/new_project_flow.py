@@ -7,15 +7,11 @@ from typing import Dict, Any, List, Tuple
 import glob
 from crewai.flow import Flow, start, listen
 from .utils import (
-    ensure_repo, parse_file_map_from_text, write_file_map, parse_code_output,
-    parse_code_fixes_output, parse_code_design_output, parse_summaries_output,
-    parse_test_output, sanitize_generated_content,
-    parse_pytest_groups_output,
-    parse_involved_files_output,
-    parse_bug_analysis_output,
+    ensure_repo, is_something_to_fix, write_file_map, sanitize_generated_content,
+    load_json_output, process_path,
 )
 from .. import settings
-from ..crews.design.project_design_crew import ProjectDesignCrew
+from ..crews.design.crew import ProjectDesignCrew
 from ..crews.development.crew import JuniorDevelopmentCrew, SeniorDevelopmentCrew, LeadDevelopmentCrew
 from ..crews.summaries.crew import SummariesCrew
 from ..crews.test_development.crew import (
@@ -24,20 +20,22 @@ from ..crews.test_development.crew import (
     LeadTestDevelopmentCrew,
 )
 from ..crews.fix_integrator.crew import FixIntegratorCrew
-from ..crews.build.phase2_crew import BuildCrewPhase2
 from ..crews.debug import (
     BugAnalysisCrew,
     PytestOutputAnalysisCrew,
     AnalyzeInvolvedFilesCrew,
     bug_fixer_for_points,
 )
+from ..crews.design.output_format.task_assignment import TASK_ASSIGNMENT_SCHEMA
+from ..crews.development.output_format.generate_code import GENERATE_CODE_SCHEMA
+from ..crews.development.output_format.debug_if_needed import DEBUG_IF_NEEDED_SCHEMA
+from ..crews.summaries.output_format.summaries import SUMMARIES_SCHEMA
+from ..crews.test_development.output_format.generate_tests import GENERATE_TESTS_SCHEMA
+from ..crews.debug.output_format.pytest_output import PYTEST_OUTPUT_ANALYSIS_SCHEMA
+from ..crews.debug.output_format.analyze_involved_files import INVOLVED_FILES_SCHEMA
+from ..crews.debug.output_format.bug_analysis import BUG_ANALYSIS_SCHEMA
+from ..crews.debug.output_format.bug_fixes import BUG_FIXES_SCHEMA
 
-# Flow-level guardrails for consistency and cost control
-MAX_DEBUG_LOOPS = 2
-MAX_TOKENS_PER_RESPONSE = 2000
-TOKEN_CAP_HINT = (
-    f"Keep responses under {MAX_TOKENS_PER_RESPONSE} tokens unless strictly necessary."
-)
 
 DEVELOPERS = {
     1: JuniorDevelopmentCrew,
@@ -50,6 +48,7 @@ TEST_DEVELOPERS = {
     2: SeniorTestDevelopmentCrew,
     3: LeadTestDevelopmentCrew,
 }
+
 
 def _run_cmd(cmd: List[str], cwd: pathlib.Path) -> Dict[str, Any]:
     completed = subprocess.run(
@@ -103,15 +102,11 @@ class NewProjectFlow(Flow):
                 "new_project_prompt": user_inputs["user_prompt"],
             }
         )
-        return {
-            "project_design_result": str(result),
-        }
+        return load_json_output(result, TASK_ASSIGNMENT_SCHEMA)
 
     @listen(project_design)
-    def code_development(self, design_result: Dict[str, Any]) -> Dict[str, Any]:
+    def code_development(self, design_result: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Run code development."""
-        design_result = parse_code_design_output(str(design_result["project_design_result"]))
-
         code = {}
         summaries = {}
         for development_task in design_result:
@@ -120,8 +115,11 @@ class NewProjectFlow(Flow):
                     "project_design": development_task["set_of_files"],
                 }
             )
-            code_output = parse_code_output(str(result.tasks_output[0]))
-            code_fixes_output = parse_code_fixes_output(str(result.tasks_output[2]))
+            code_output = load_json_output(result, GENERATE_CODE_SCHEMA, 0)
+            if len(code_output) == 0:
+                continue
+            code_fixes_output = load_json_output(result, DEBUG_IF_NEEDED_SCHEMA, 2)
+
             for file in code_output:
                 file_fixes = [
                     {k: v for k, v in fix.items() if k != "file_path"}
@@ -137,20 +135,20 @@ class NewProjectFlow(Flow):
                     code[file["path"]] = sanitize_generated_content(str(fix_result.tasks_output[0]))
                 else:
                     code[file["path"]] = sanitize_generated_content(file["content"])
-            # TODO: uncomment
-            # # Generate summaries for this chunk (design + resulting code for this design)
-            # result_summ = SummariesCrew().crew().kickoff(
-            #     inputs={
-            #         "project_design": development_task["set_of_files"],
-            #         "code_chunk": code_output,
-            #     }
-            # )
-            # file_summaries = parse_summaries_output(str(result_summ.tasks_output[0]))
-            # module_summaries = parse_summaries_output(str(result_summ.tasks_output[1]))
-            # for summary in file_summaries:
-            #     summaries[summary["path"]] = sanitize_generated_content(summary["content"])
-            # for summary in module_summaries:
-            #     summaries[summary["path"]] = sanitize_generated_content(summary["content"])
+
+            # Generate summaries for this chunk (design + resulting code for this design)
+            result_summ = SummariesCrew().crew().kickoff(
+                inputs={
+                    "project_design": development_task["set_of_files"],
+                    "code_chunk": code_output,
+                }
+            )
+            file_summaries = load_json_output(result_summ, SUMMARIES_SCHEMA, 0)
+            module_summaries = load_json_output(result_summ, SUMMARIES_SCHEMA, 1)
+            for summary in file_summaries:
+                summaries[summary["path"]] = sanitize_generated_content(summary["content"])
+            for summary in module_summaries:
+                summaries[summary["path"]] = sanitize_generated_content(summary["content"])
         return {
             "code": code,
             "summaries": summaries,
@@ -162,34 +160,20 @@ class NewProjectFlow(Flow):
         """Deterministically write the codebase."""
         code_logs = write_file_map(code_result["code"], self.out_dir, 'src')  # TODO: review the logs
         summaries_logs = write_file_map(code_result["summaries"], self.out_dir, 'summaries')  # TODO: review the logs
-        return {
-            "project_design": code_result["project_design"],
-        }
+        return code_result["project_design"]
 
     @listen(write_generated_code)
-    def apply_linting(self, code_result: Dict[str, Any]) -> Dict[str, Any]:
+    def apply_linting(self, project_design: Dict[str, Any]) -> Dict[str, Any]:
         """Apply linting to the codebase."""
         src_dir = pathlib.Path(self.out_dir) / "src"
-        if not src_dir.exists():
-            return {
-                "linting_skipped": True,
-                "reason": f"Source directory not found: {src_dir}",
-                "out_dir": str(self.out_dir),
-                "project_design": code_result["project_design"],
-            }
-
-        black_fmt, ruff_check = lint_and_format(src_dir)
-        return {
-            "linting_skipped": False,
-            "black_format": black_fmt,
-            "ruff_report": ruff_check,
-            "project_design": code_result["project_design"],
-        }
+        if src_dir.exists():
+            black_fmt, ruff_check = lint_and_format(src_dir)  # TODO: review the logs
+        return project_design
 
     @listen(apply_linting)
-    def test_development(self, lint_result: Dict[str, Any]) -> Dict[str, Any]:
+    def test_development(self, project_design: Dict[str, Any]) -> Dict[str, Any]:
         """Unit tests generation"""
-        project_info = lint_result["project_design"].copy()
+        project_info = project_design.copy()
         # Enrich the design with the file contents to support better tests
         src_dir = pathlib.Path(self.out_dir) / "src"
         tests_to_write: Dict[str, str] = {}
@@ -209,53 +193,41 @@ class NewProjectFlow(Flow):
                     "project": test_task,
                 }
             )
-            generated_tests = parse_test_output(str(result.tasks_output[0]))
+            generated_tests = load_json_output(result, GENERATE_TESTS_SCHEMA, 0)
             for f in generated_tests:
                 tests_to_write[f["path"]] = sanitize_generated_content(f["content"])
         if tests_to_write:
             write_file_map(tests_to_write, self.out_dir, "tests")
-        return {
-            "project_design": project_info,
-            "tests_written": list(tests_to_write.keys()),
-        }
+        return project_info
 
     @listen(test_development)
-    def project_debugging(self, test_dev_result: Dict[str, Any]) -> Dict[str, Any]:
+    def project_debugging(self, project_info: Dict[str, Any]) -> Dict[str, Any]:
         for _ in range(settings.MAX_TEST_RUN_ATTEMPTS):
-            test_result = self._lint_and_execute_tests(test_dev_result)
-            if test_result.get("returncode") != 0:
-                return {
-                    "project_design": test_dev_result.get("project_design"),
-                    "bug_analysis": [],
-                }
+            test_result = self._lint_and_execute_tests(project_info)
+            if (
+                test_result.get("pytest_output") is None or
+                len(test_result.get("pytest_output", {})) == 0 or
+                test_result.get("pytest_output", {}).get("returncode") == 0
+            ):
+                return test_result
             pytests_output_analysis = self._pytest_output_analysis(test_result)
             involved_files = self._analyze_involved_files(pytests_output_analysis)
-            bug_analysis = self._bug_analysis(involved_files)
-        return {
-            "project_design": test_dev_result.get("project_design"),
-            "bug_analysis": bug_analysis,
-        }
+            self._bug_analysis(involved_files)
+        test_result = self._lint_and_execute_tests(project_info)
+        return test_result
 
-    def _lint_and_execute_tests(self, test_dev_result: Dict[str, Any]) -> Dict[str, Any]:
+    def _lint_and_execute_tests(self, project_info: Dict[str, Any]) -> Dict[str, Any]:
         """Auto-fix lint in tests/ and execute pytest, returning structured results."""
         repo_dir = pathlib.Path(self.out_dir)
         src_dir = repo_dir / "src"
         tests_dir = repo_dir / "tests"
 
-        tests_black_fmt: Dict[str, Any] | None = None
-        tests_ruff_report: Dict[str, Any] | None = None
-
         if tests_dir.exists():
             # Ruff auto-fix and Black formatting scoped to tests/
-            tests_black_fmt, tests_ruff_report = lint_and_format(tests_dir)
+            tests_black_fmt, tests_ruff_report = lint_and_format(tests_dir)  # TODO: review the logs
         else:
             return {
-                "tests_dir": str(tests_dir),
-                "tests_linting_skipped": True,
-                "tests_linting_reason": f"Tests directory not found: {tests_dir}",
-                "project_design": test_dev_result.get("project_design"),
-                "tests_black_format": None,
-                "tests_ruff_report": None,
+                "project_design": project_info,
                 "pytest_output": None,
             }
 
@@ -297,12 +269,8 @@ class NewProjectFlow(Flow):
             }
 
         return {
-            "tests_dir": str(tests_dir),
-            "tests_linting_skipped": False,
-            "tests_black_format": tests_black_fmt,
-            "tests_ruff_report": tests_ruff_report,
             "pytest_output": pytest_result,
-            "project_design": test_dev_result.get("project_design"),
+            "project_design": project_info,
         }
 
     def _pytest_output_analysis(self, test_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -312,17 +280,13 @@ class NewProjectFlow(Flow):
                 "pytest_output": test_result.get("pytest_output", {}),
             }
         )
-
-        try:
-            groups = parse_pytest_groups_output(str(pytest_output_analysis.tasks_output[1]))
-        except Exception:
-            groups = []
-
-        if len(groups) == 0:
+        if not is_something_to_fix(pytest_output_analysis.tasks_output[0]):
             return {
-                "complete_output_analysis": groups,
+                "complete_output_analysis": [],
                 "flat_output_analysis": [],
             }
+
+        groups = load_json_output(pytest_output_analysis, PYTEST_OUTPUT_ANALYSIS_SCHEMA, 1)
 
         flat_groups = [
             {
@@ -335,7 +299,7 @@ class NewProjectFlow(Flow):
                 "traceback": group["traceback"][0]
                 if isinstance(group.get("traceback", ""), list) else group.get("traceback", ""),
             } for group in groups
-        ]
+        ]  # TODO: revisar si hay que aplicar el fix al resto de los archivos
 
         return {
             "complete_output_analysis": groups,
@@ -371,109 +335,100 @@ class NewProjectFlow(Flow):
                 "flat_output_analysis": pytests_output_analysis.get("flat_output_analysis", []),
             }
         )
-        involved_files = parse_involved_files_output(str(involved_files.tasks_output[0]))
+        involved_files = load_json_output(involved_files, INVOLVED_FILES_SCHEMA, 0)
 
-        if not isinstance(involved_files, list) or len(involved_files) == 0:
-            return {
-                "debug_info": [],
-            }
-
-        enriched: List[Dict[str, Any]] = []
+        file_contents: Dict[str, str] = {}
         for entry in involved_files:
             try:
                 file_list = entry.get("involved_files", [])
             except AttributeError:
                 file_list = []
-            code_blobs: List[Dict[str, str]] = []
             for p in file_list:
-                try:
-                    content = pathlib.Path(p).read_text(encoding="utf-8")
-                except Exception:
-                    content = ""
-                code_blobs.append({"path": str(p), "content": content})
-            new_entry = dict(entry)
-            new_entry["involved_files_code"] = code_blobs
-            enriched.append(new_entry)
+                if str(p) not in file_contents:
+                    try:
+                        content = process_path(repo_dir, p, "src").read_text(encoding="utf-8")
+                        file_contents[str(p)] = content
+                    except Exception:
+                        pass
 
         return {
-            "debug_info": enriched
+            "debug_info": involved_files,
+            "file_contents": file_contents,
+            "code_files": code_files,
+            "test_files": test_files,
         }
 
-    def _bug_analysis(self, involved_files_result: Dict[str, Any]) -> Dict[str, Any]:
+    def _bug_analysis(self, debug_info: Dict[str, Any]) -> Dict[str, Any]:
         """Debug the project."""
-
         # If pytest succeeded, skip debugging
-        debug_info = involved_files_result.get("debug_info", {})
-        if not isinstance(debug_info, list) or len(debug_info) == 0:
-            return {
-                "debugging_skipped": True,
-                "reason": "No debug info",
-                **involved_files_result,
-            }
+        if len(debug_info.get("debug_info", [])) == 0:
+            return {}
 
         bug_analysis = BugAnalysisCrew().crew().kickoff(
             inputs={
-                "debug_info": debug_info,
+                "file_contents": debug_info.get("file_contents", {}),
+                "code_files": debug_info.get("code_files", []),
+                "test_files": debug_info.get("test_files", []),
+                "debug_info": debug_info.get("debug_info", []),
             }
         )
-        bug_analysis = parse_bug_analysis_output(str(bug_analysis.tasks_output[0]))
-        if not isinstance(bug_analysis, list) or len(bug_analysis) == 0:
-            return {
-                "debugging_skipped": True,
-                "reason": "No bugs found",
-                **involved_files_result,
-            }
+        bug_analysis = load_json_output(bug_analysis, BUG_ANALYSIS_SCHEMA, 0)
+        if len(bug_analysis) == 0:
+            return {}
 
         # Apply fixes per bug using appropriate BugFixerCrew based on points
         files_to_write: Dict[str, str] = {}
+        test_files_to_write: Dict[str, str] = {}
+        changes_by_file: Dict[str, List[Dict[str, str]]] = {}
         for bug in bug_analysis:
+            bug = bug.copy()
+            bug["file_contents"] = []
+            file_contents = debug_info.get("file_contents", {})
+            for file_path in bug.get("file_paths", []):
+                if file_path in file_contents:
+                    bug["file_contents"].append({"path": file_path, "content": file_contents[file_path]})
+
             points = int(bug.get("points", 1) or 1)
             fixer = bug_fixer_for_points(points)
             result = fixer.crew().kickoff(inputs={
                 "bug": bug,
-                "debug_info": involved_files_result.get("debug_info", []),
+                "debug_info": debug_info,
             })
-            file_map = parse_file_map_from_text(str(result.tasks_output[0]))
-            for f in file_map:
-                path = f.get("path")
-                content = sanitize_generated_content(f.get("content", ""))
-                if path:
-                    files_to_write[path] = content
+            file_changes = load_json_output(result, BUG_FIXES_SCHEMA, 0)
+
+            for file_change in file_changes:
+                path = file_change.get("path")
+                content_diff = file_change.get("content_diff", "")
+                if path not in changes_by_file:
+                    changes_by_file[path] = []
+                changes_by_file[path].append(content_diff)
+
+        for path, changes in changes_by_file.items():
+            try:
+                original_code = file_contents[path]
+            except KeyError:
+                try:
+                    original_code = file_contents[f'src/{path}']
+                except KeyError:
+                    original_code = "-"
+            fix_result = FixIntegratorCrew().crew().kickoff(
+                inputs={
+                    "original_code": original_code,
+                    "code_fixes": changes,
+                }
+            )
+            file_result = sanitize_generated_content(str(fix_result.tasks_output[0]))
+            if path.startswith('tests/'):
+                test_files_to_write[path] = file_result
+            else:
+                files_to_write[path] = file_result
 
         if files_to_write:
-            write_file_map(files_to_write, self.out_dir)
+            write_file_map(files_to_write, self.out_dir, 'src')
+        if test_files_to_write:
+            write_file_map(test_files_to_write, self.out_dir, 'tests')
 
-        return {
-            "debugging_skipped": False,
-            "reason": "Bugs fixed",
-            "fixes_applied": list(files_to_write.keys()),
-        }
-
-
-
-    # @listen(write_generated_code)
-    # def phase2_generate_tests(self, state: Dict[str, Any]) -> Dict[str, Any]:
-    #     """Run Phase 2 (part 1): format/lint and generate tests (no writes)."""
-    #     result = BuildCrewPhase2().crew().kickoff(inputs={
-    #         "out_dir": state["out_dir"]
-    #     })
-    #     return {
-    #         **state,
-    #         "phase2_tests_result": str(result),
-    #     }
-
-    # @listen(phase2_generate_tests)
-    # def write_tests(self, state: Dict[str, Any]) -> Dict[str, Any]:
-    #     """Deterministically write tests before running pytest."""
-    #     files = parse_file_map_from_text(state["phase2_tests_result"])
-    #     if files:
-    #         log = write_file_map(files, state["out_dir"])
-    #     else:
-    #         log = []
-    #     return {
-    #         **state,
-    #         "write_tests_log": log,
-    #     }
+        return list(files_to_write.keys()) + list(test_files_to_write.keys())
 
     # @listen(write_tests)
     # def phase2_debug_and_docs(self, state: Dict[str, Any]) -> Dict[str, Any]:

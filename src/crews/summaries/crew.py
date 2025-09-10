@@ -4,6 +4,7 @@ from crewai import Agent, Task, Crew, Process
 from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from ...utils.routing import llms
+from .output_format.summaries import SummariesOutput
 
 
 @CrewBase
@@ -22,13 +23,14 @@ class SummariesCrew:
 
     def __init__(self):
         self.llm_light = llms()["light"]
+        self.llm_medium = llms()["medium"]
         self.llm_reasoning = llms()["reasoning"]
 
     @agent
     def summarizer(self) -> Agent:
         return Agent(
             config=self.agents_config["summarizer"],  # type: ignore[index]
-            llm=self.llm_reasoning,
+            llm=self.llm_light,
             verbose=True,
         )
 
@@ -36,17 +38,23 @@ class SummariesCrew:
     def module_summarizer(self) -> Agent:
         return Agent(
             config=self.agents_config["module_summarizer"],  # type: ignore[index]
-            llm=self.llm_reasoning,
+            llm=self.llm_light,
             verbose=True,
         )
 
     @task
     def summarize_chunk(self) -> Task:
-        return Task(config=self.tasks_config["summarize_chunk"])  # type: ignore[index]
+        return Task(
+            config=self.tasks_config["summarize_chunk"],  # type: ignore[index]
+            output_json=SummariesOutput,
+        )
 
     @task
     def summarize_modules(self) -> Task:
-        return Task(config=self.tasks_config["summarize_modules"])  # type: ignore[index]
+        return Task(
+            config=self.tasks_config["summarize_modules"],  # type: ignore[index]
+            output_json=SummariesOutput,
+        )
 
     @crew
     def crew(self) -> Crew:

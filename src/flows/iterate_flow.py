@@ -3,7 +3,6 @@ import pathlib
 from typing import Dict, Any
 from crewai.flow import Flow, start, listen
 from .utils import ensure_knowledge
-from ..crews.iterate.crew import IterateCrew
 
 # Flow-level guardrails for iteration tasks
 MAX_DEBUG_LOOPS = 2
@@ -41,12 +40,12 @@ class IterateFlow(Flow):
     @listen(bootstrap_knowledge)
     def execute_iterate_crew(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the IterateCrew with the prepared inputs."""
-        crew = IterateCrew().crew()
-        result = crew.kickoff(inputs=inputs)
+        # crew = IterateCrew().crew()
+        # result = crew.kickoff(inputs=inputs)
 
         return {
-            "result": str(result),
-            "repo": inputs["repo"],
+            # "result": str(result),
+            # "repo": inputs["repo"],
             "success": True,
             "flow_type": "iterate",
         }
