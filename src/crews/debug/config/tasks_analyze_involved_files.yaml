@@ -22,7 +22,7 @@ analyze_involved_files:
     Output JSON format:
     {'root': [{
       "file_path": [str|null], "affected_callable": [str|null], "error": [str], "traceback": [str],
-      "involved_files": [str]
+      "involved_files": [str], "id": int
     }]}
     Use compact language. Do not add prose outside JSON.
   agent: analyst

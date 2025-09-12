@@ -1,0 +1,179 @@
+summarize_chunk:
+  description: >-
+    code_chunk:
+    ```{code_chunk}```
+
+    Task:
+    Based on the provided chunked file contents, generate
+    one Markdown summary per source file (exclude `__init__.py`).
+    Use the following English template strictly (except None entries):
+
+    ------------------------------------------------------------
+
+    ## Location
+
+    `project.module.file`
+
+
+    ## Purpose
+
+    [Clear and concise description of the file's primary purpose]
+
+
+    ## Dependencies
+
+    - **Internal**:
+      - `module_1.py` - [Why it is used]
+      - `module_2.py` - [Why it is used]
+    - **External**:
+      - `external_library` - [Version if known, purpose]
+
+
+    ## Main structure
+
+
+    ### Classes
+
+
+    #### `ClassName`
+
+      - **Responsibility**: [What it is responsible for]
+      - **Important attributes**:
+        - `attribute_1`: [Type, description]
+      - **Primary methods**:
+        - `method_1(args)`: [Description, parameters, return]
+
+
+    ### Functions
+
+    #### `function_name(args)`
+
+      - **Purpose**: [Brief description]
+      - **Parameters**:
+        - `param_1`: [Type, description]
+      - **Returns**: [Type, description]
+
+    ### Global variables/constants
+
+      - `IMPORTANT_VARIABLE`: [Value if simple, purpose]
+
+    ## Usage examples
+
+    ```python
+    # Typical usage example
+    result = example_function(param)
+    ```
+
+    ------------------------------------------------------------
+
+    Requirements:
+      - Prioritize: purpose, responsibilities, inputs/outputs, public APIs
+        (relevant signatures), invariants, dependencies, patterns, use cases,
+        and suggested test criteria.
+      - Maintain semantic focus and keep it compact; do not repeat large code
+        blocks (only minimal code in examples when helpful).
+
+    IMPORTANT: Do not add __init__.py to the path. Use the same path as the
+    input file path with .md extension.
+
+    Output path format example:
+      Input:
+        {'file_path': 'utils/validators.py'}
+      Output:
+        [{"path": "utils/validators.md", "content": "..."}]
+
+  expected_output: >-
+    Output JSON:
+      [{
+        "path": str,
+        "content": str
+      }]
+    Return only valid JSON. Do not add prose outside JSON.
+  agent: summarizer
+
+summarize_modules:
+  description: >-
+    Task:
+    Generate one high-level Markdown overview per package/folder from the information of
+    the individual files in the provided code chunk. Use ONLY the following English template strictly
+    (replace placeholders and omit sections that are None):
+
+    ------------------------------------------------------------
+
+    # Module: [Package/Folder Name]
+
+
+    ## Location
+
+    `project.module`
+
+
+    ## Module purpose
+
+    [Describe the module's purpose and responsibilities]
+
+
+    ## Module structure
+
+    folder/
+
+    │
+
+    ├── subfolder_1/ # [Brief description]
+    │ ├── file_1.py # [Purpose]
+    │ └── file_2.py # [Purpose]
+    │
+    ├── subfolder_2/ # [Brief description]
+    │ └── file_3.py # [Purpose]
+    │
+
+    └── __init__.py # [Purpose]
+
+
+    ## Relationships with other modules
+
+      - **Dependencies**:
+        - `external_module` - [Reason/purpose of the dependency]
+      - **Dependents**:
+        - `module_that_uses_it` - [How it is used]
+
+
+    ## Main interfaces
+
+      - **Exported classes**:
+        - `MainClass` - [Short description]
+      - **Exported functions**:
+        - `public_function()` - [Short description]
+
+
+    ## Important workflows
+
+    [Describe key flows or processes implemented by this module]
+
+
+    ## Implementation notes
+
+    [Technical details relevant for development]
+
+    ------------------------------------------------------------
+
+    Guidance:
+      - Infer packages/folders by grouping files by their top-level directories within the
+        chunk; do not invent folders that are not present.
+      - Keep overviews concise, focusing on responsibilities, interfaces, and relationships.
+      - Use English in all outputs.
+
+    Output path rules:
+      - For a folder like "utils/validators/", output path should be
+        "utils/validators/_module.md" under the same root used for file summaries.
+
+  expected_output: >-
+    Output JSON:
+      [{
+        "path": str,
+        "content": str
+      }]
+    Return only valid JSON. Do not add prose outside JSON.
+  agent: module_summarizer
+  context:
+    - summarize_chunk

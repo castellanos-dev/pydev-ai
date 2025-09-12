@@ -1,0 +1,87 @@
+summarize_modules:
+  description: >-
+    invidual_summaries:
+    ```{invidual_summaries}```
+
+    Task:
+    Generate one high-level Markdown overview per package/folder from the information of
+    the individual summaries provided. Use ONLY the following English template strictly
+    (replace placeholders and omit sections that are None):
+
+    ------------------------------------------------------------
+
+    # Module: [Package/Folder Name]
+
+
+    ## Location
+
+    `project.module`
+
+
+    ## Module purpose
+
+    [Describe the module's purpose and responsibilities]
+
+
+    ## Module structure
+
+    folder/
+
+    │
+
+    ├── subfolder_1/ # [Brief description]
+    │ ├── file_1.py # [Purpose]
+    │ └── file_2.py # [Purpose]
+    │
+    ├── subfolder_2/ # [Brief description]
+    │ └── file_3.py # [Purpose]
+    │
+
+    └── __init__.py # [Purpose]
+
+
+    ## Relationships with other modules
+
+      - **Dependencies**:
+        - `external_module` - [Reason/purpose of the dependency]
+      - **Dependents**:
+        - `module_that_uses_it` - [How it is used]
+
+
+    ## Main interfaces
+
+      - **Exported classes**:
+        - `MainClass` - [Short description]
+      - **Exported functions**:
+        - `public_function()` - [Short description]
+
+
+    ## Important workflows
+
+    [Describe key flows or processes implemented by this module]
+
+
+    ## Implementation notes
+
+    [Technical details relevant for development]
+
+    ------------------------------------------------------------
+
+    Guidance:
+      - Infer packages/folders by grouping files by their top-level directories within the
+        chunk; do not invent folders that are not present.
+      - Keep overviews concise, focusing on responsibilities, interfaces, and relationships.
+      - Use English in all outputs.
+
+    Output path rules:
+      - For a folder like "utils/validators/", output path should be
+        "utils/validators/_module.md" under the same root used for file summaries.
+
+  expected_output: >-
+    Output JSON:
+      [{
+        "path": str,
+        "content": str
+      }]
+    Return only valid JSON. Do not add prose outside JSON.
+  agent: module_summarizer

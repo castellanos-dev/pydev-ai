@@ -41,7 +41,8 @@ analyze_test_failures:
         "affected_callables": [str],
         "points": int,
         "description": str,
-        "fix": str
+        "fix": str,
+        "id": int
       }]
     }
     Use compact language. Do not add prose outside JSON.

@@ -1,0 +1,44 @@
+analyze_project_structure:
+  description: >
+
+    Project files:
+    ```
+    {files}
+    ```
+
+    You are given a repository absolute path and a list of absolute file paths
+    limited to .py, .md, and .rst files.
+
+    Identify the typical Python project structure elements:
+      - code_dir: absolute path to the main code directory. Prefer `src` if present
+        with Python packages inside. If there's no `src`, infer the most plausible
+        package root containing the majority of project modules. Avoid selecting
+        virtualenvs, build outputs, or external directories.
+      - docs_dir: absolute path to the documentation directory if present. Prefer
+        `docs` root if it contains .md/.rst. If not found, return null.
+      - test_dirs: absolute paths to any test directories. Prefer `tests` at root,
+        but also include per-app tests like `apps/*/tests` (e.g., Django apps) and
+        `*/tests` patterns under the repo root. Include unique directories only.
+        Empty list if no test directories are found.
+      - summaries_dir: absolute path to an existing summaries directory if present.
+        It MUST comply with the structure defined by the new project flow, where
+        summaries are written under a top-level `summaries/` directory mirroring the
+        code module layout (e.g., summaries/<module>/*.md). If such a directory is not
+        present, return null. Do not invent it.
+
+    Constraints:
+      - Return absolute paths only.
+      - Do not invent directories; must be derivable from the provided file list.
+      - Be robust to mono-repos; if multiple plausible code roots exist, choose
+        the most central one with most Python modules.
+
+  expected_output: >
+    Output JSON format:
+    {'root': {
+      "code_dir": str,
+      "docs_dir": str|null,
+      "test_dirs": [str],
+      "summaries_dir": str|null
+    }}
+    Use compact JSON; do not add prose outside JSON.
+  agent: structure_analyst

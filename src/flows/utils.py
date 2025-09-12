@@ -51,12 +51,13 @@ def sanitize_generated_content(text: str) -> str:
 
     return s
 
-def ensure_repo(repo: str) -> Union[None, str]:
+def ensure_repo(repo: str, check_empty: bool = False) -> Union[None, str]:
     """
     Initialize repository directory if needed.
 
     Args:
         repo: Repository path (absolute or relative)
+        check_empty: Whether to check if the repository is empty
 
     Returns:
         None if repo is absolute path, absolute path string if repo was relative
@@ -77,7 +78,7 @@ def ensure_repo(repo: str) -> Union[None, str]:
             raise ValueError(f"Absolute repository path does not exist: {repo}")
         if not repo_path.is_dir():
             raise ValueError(f"Repository path is not a directory: {repo}")
-        if not any(repo_path.iterdir()):
+        if check_empty and not any(repo_path.iterdir()):
             raise ValueError(f"Repository directory is empty: {repo}")
 
     else:
@@ -85,6 +86,8 @@ def ensure_repo(repo: str) -> Union[None, str]:
         repo_path = repo_path.resolve()
         if not repo_path.exists():
             repo_path.mkdir(parents=True, exist_ok=True)
+        if check_empty and not any(repo_path.iterdir()):
+            raise ValueError(f"Repository directory is empty: {repo}")
 
     return str(repo_path)
 

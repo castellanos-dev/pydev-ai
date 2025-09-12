@@ -10,6 +10,7 @@ INVOLVED_FILES_SCHEMA = '''
     "error": [str],
     "traceback": [str],
     "involved_files": [str]
+    "id": int
 }]
 '''
 
@@ -20,7 +21,7 @@ class InvolvedFilesItem(BaseModel):
     error: List[str]
     traceback: List[str]
     involved_files: List[str]
-
+    id: int
 
 class AnalyzeInvolvedFilesOutput(RootModel[List[InvolvedFilesItem]]):
     pass

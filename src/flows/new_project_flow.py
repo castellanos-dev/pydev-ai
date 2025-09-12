@@ -13,7 +13,7 @@ from .utils import (
 from .. import settings
 from ..crews.design.crew import ProjectDesignCrew
 from ..crews.development.crew import JuniorDevelopmentCrew, SeniorDevelopmentCrew, LeadDevelopmentCrew
-from ..crews.summaries.crew import SummariesCrew
+from ..crews.summaries.summaries_from_design_crew import SummariesFromDesignCrew
 from ..crews.test_development.crew import (
     JuniorTestDevelopmentCrew,
     SeniorTestDevelopmentCrew,
@@ -137,7 +137,7 @@ class NewProjectFlow(Flow):
                     code[file["path"]] = sanitize_generated_content(file["content"])
 
             # Generate summaries for this chunk (design + resulting code for this design)
-            result_summ = SummariesCrew().crew().kickoff(
+            result_summ = SummariesFromDesignCrew().crew().kickoff(
                 inputs={
                     "project_design": development_task["set_of_files"],
                     "code_chunk": code_output,
@@ -298,18 +298,16 @@ class NewProjectFlow(Flow):
                 if isinstance(group.get("error", ""), list) else group.get("error", ""),
                 "traceback": group["traceback"][0]
                 if isinstance(group.get("traceback", ""), list) else group.get("traceback", ""),
-            } for group in groups
-        ]  # TODO: revisar si hay que aplicar el fix al resto de los archivos
+                "id": i,
+            } for i, group in enumerate(groups)
+        ]
 
-        return {
-            "complete_output_analysis": groups,
-            "flat_output_analysis": flat_groups,
-        }
+        return flat_groups
 
     def _analyze_involved_files(self, pytests_output_analysis: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze the involved files."""
 
-        if len(pytests_output_analysis.get("flat_output_analysis", [])) == 0:
+        if len(pytests_output_analysis) == 0:
             return {
                 "debug_info": [],
             }
@@ -332,7 +330,7 @@ class NewProjectFlow(Flow):
             inputs={
                 "code_files": code_files,
                 "test_files": test_files,
-                "flat_output_analysis": pytests_output_analysis.get("flat_output_analysis", []),
+                "flat_output_analysis": pytests_output_analysis,
             }
         )
         involved_files = load_json_output(involved_files, INVOLVED_FILES_SCHEMA, 0)

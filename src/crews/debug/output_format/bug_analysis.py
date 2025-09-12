@@ -9,7 +9,8 @@ BUG_ANALYSIS_SCHEMA = '''
     "affected_callables": [str],
     "points": int,
     "description": str,
-    "fix": str
+    "fix": str,
+    "id": int
 }]
 '''
 
@@ -20,7 +21,7 @@ class BugAnalysisItem(BaseModel):
     points: int
     description: str
     fix: str
-
+    id: int
 
 class AnalyzeTestFailuresOutput(RootModel[List[BugAnalysisItem]]):
     pass

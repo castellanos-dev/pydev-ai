@@ -1,21 +1,16 @@
 from __future__ import annotations
 from typing import List
 from crewai import Agent, Task, Crew, Process
-from crewai.project import CrewBase, agent, crew, task
+from crewai.project import CrewBase, agent, crew
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from ...utils.routing import llms
-from .output_format.summaries import SummariesOutput
 
 
 @CrewBase
-class SummariesCrew:
+class BaseSummariesCrew:
     """
-    Crew that generates high-signal Markdown summaries for files and packages
-    based on project design and the resulting source code of a chunk.
-
-    The output is a compact JSON string describing summaries for files
-    (excluding `__init__.py`) and packages. The flow consumes it and writes
-    Markdown files under the repository's digests directory.
+    Base crew for generating Markdown summaries for files and modules.
+    Subclasses must set `original_tasks_config_path` to select the YAML file.
     """
 
     agents: List[BaseAgent]
@@ -29,7 +24,7 @@ class SummariesCrew:
     @agent
     def summarizer(self) -> Agent:
         return Agent(
-            config=self.agents_config["summarizer"],  # type: ignore[index]
+            config=self.agents_config["summarizer"],
             llm=self.llm_light,
             verbose=True,
         )
@@ -37,23 +32,9 @@ class SummariesCrew:
     @agent
     def module_summarizer(self) -> Agent:
         return Agent(
-            config=self.agents_config["module_summarizer"],  # type: ignore[index]
+            config=self.agents_config["module_summarizer"],
             llm=self.llm_light,
             verbose=True,
-        )
-
-    @task
-    def summarize_chunk(self) -> Task:
-        return Task(
-            config=self.tasks_config["summarize_chunk"],  # type: ignore[index]
-            output_json=SummariesOutput,
-        )
-
-    @task
-    def summarize_modules(self) -> Task:
-        return Task(
-            config=self.tasks_config["summarize_modules"],  # type: ignore[index]
-            output_json=SummariesOutput,
         )
 
     @crew
