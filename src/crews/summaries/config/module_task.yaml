@@ -76,6 +76,7 @@ summarize_modules:
     Output path rules:
       - For a folder like "utils/validators/", output path should be
         "utils/validators/_module.md" under the same root used for file summaries.
+      - For the top-level module, output path must be "_module.md".
 
   expected_output: >-
     Output JSON:

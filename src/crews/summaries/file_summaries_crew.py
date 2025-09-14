@@ -11,7 +11,7 @@ class FileSummariesCrew(BaseSummariesCrew):
     Uses the same agents and task definitions but executes only the file task.
     """
 
-    original_tasks_config_path = "config/from_repo_tasks.yaml"
+    original_tasks_config_path = "config/file_summaries_task.yaml"
 
     @task
     def summarize_chunk(self) -> Task:

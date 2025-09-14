@@ -27,3 +27,4 @@ MAX_TEST_RUN_ATTEMPTS = int(os.getenv("MAX_TEST_RUN_ATTEMPTS", "3"))
 
 # Flow chunking limits
 MAX_CHARS = int(os.getenv("MAX_CHARS", "40000"))
+MAX_SCRIPTS = int(os.getenv("MAX_SCRIPTS", "10"))

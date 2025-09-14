@@ -10,10 +10,13 @@ from .utils import (
     ensure_repo, is_something_to_fix, write_file_map, sanitize_generated_content,
     load_json_output, process_path,
 )
+from .common import (
+    generate_file_summaries_from_chunk,
+    generate_module_summaries_from_file_summaries,
+)
 from .. import settings
 from ..crews.design.crew import ProjectDesignCrew
 from ..crews.development.crew import JuniorDevelopmentCrew, SeniorDevelopmentCrew, LeadDevelopmentCrew
-from ..crews.summaries.summaries_from_design_crew import SummariesFromDesignCrew
 from ..crews.test_development.crew import (
     JuniorTestDevelopmentCrew,
     SeniorTestDevelopmentCrew,
@@ -85,6 +88,12 @@ class NewProjectFlow(Flow):
     Two-phase CrewAI Flow with deterministic write steps in-between.
     """
 
+    def _process_file_summaries_chunk(self, chunk: List[Dict[str, str]]) -> Dict[str, str]:
+        return generate_file_summaries_from_chunk(chunk)
+
+    def _process_module_summaries_from_file_summaries(self, file_summaries: Dict[str, str]) -> Dict[str, str]:
+        return generate_module_summaries_from_file_summaries(file_summaries)
+
     @start()
     def process_inputs(self) -> Dict[str, Any]:
         user_prompt = self.state["user_prompt"]
@@ -136,19 +145,28 @@ class NewProjectFlow(Flow):
                 else:
                     code[file["path"]] = sanitize_generated_content(file["content"])
 
-            # Generate summaries for this chunk (design + resulting code for this design)
-            result_summ = SummariesFromDesignCrew().crew().kickoff(
-                inputs={
-                    "project_design": development_task["set_of_files"],
-                    "code_chunk": code_output,
+            # Generate summaries iteratively to avoid LLM output limits
+            # 1) Per-file summaries (iterate item-by-item)
+            file_summaries_map = self._process_file_summaries_chunk(code_output)
+
+            # 2) Per-module summaries built from file summaries only
+            # Group file summaries by their parent folder
+            folders = set(pathlib.Path(p).parent for p in file_summaries_map.keys())
+            module_summaries_map: Dict[str, str] = {}
+            for folder in folders:
+                per_module_input = {
+                    path: content
+                    for path, content in file_summaries_map.items()
+                    if pathlib.Path(path).parent == folder
                 }
-            )
-            file_summaries = load_json_output(result_summ, SUMMARIES_SCHEMA, 0)
-            module_summaries = load_json_output(result_summ, SUMMARIES_SCHEMA, 1)
-            for summary in file_summaries:
-                summaries[summary["path"]] = sanitize_generated_content(summary["content"])
-            for summary in module_summaries:
-                summaries[summary["path"]] = sanitize_generated_content(summary["content"])
+                if not per_module_input:
+                    continue
+                generated = self._process_module_summaries_from_file_summaries(per_module_input)
+                module_summaries_map.update(generated)
+
+            # 3) Accumulate
+            summaries.update(file_summaries_map)
+            summaries.update(module_summaries_map)
         return {
             "code": code,
             "summaries": summaries,

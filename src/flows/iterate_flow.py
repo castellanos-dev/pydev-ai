@@ -1,16 +1,17 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 from crewai.flow import Flow, start, listen
 from .utils import ensure_repo, load_json_output
 from ..crews.project_structure.crew import ProjectStructureCrew
 from ..crews.project_structure.output_format.project_structure import PROJECT_STRUCTURE_SCHEMA
-from ..crews.summaries.output_format.summaries import SUMMARIES_SCHEMA
-from ..crews.summaries.repo_summaries_crew import RepoSummariesCrew
-from ..crews.summaries.file_summaries_crew import FileSummariesCrew
-from ..crews.summaries.module_summaries_crew import ModuleSummariesCrew
-from .utils import write_file_map, sanitize_generated_content
-from .. import settings
+from ..crews.summaries.output_format.summaries_dir import SUMMARIES_DIR_SCHEMA
+from ..crews.summaries.summaries_dir_crew import SummariesDirCrew
+from .utils import write_file_map
+from .common import (
+    generate_file_summaries_from_chunk,
+    generate_module_summaries_from_file_summaries,
+)
 
 
 class IterateFlow(Flow):
@@ -22,62 +23,11 @@ class IterateFlow(Flow):
     2. Execute IterateCrew with flow-level limits and guardrails
     """
 
-    def _process_summaries_chunk(self, chunk: Dict[str, str]) -> Dict[str, str]:
-        """
-        Process a chunk of code files and generate summaries.
+    def _process_file_summaries_chunk(self, chunk: List[Dict[str, str]]) -> Dict[str, str]:
+        return generate_file_summaries_from_chunk(chunk)
 
-        Args:
-            chunk: Dictionary mapping file paths to their content
-
-        Returns:
-            Dictionary mapping file paths to their summaries
-        """
-        result = RepoSummariesCrew().crew().kickoff(inputs={
-            "code_chunk": chunk,
-        })
-        file_summaries = load_json_output(result, SUMMARIES_SCHEMA, 0)
-        module_summaries = load_json_output(result, SUMMARIES_SCHEMA, 1)
-
-        summaries = {}
-        for s in file_summaries + module_summaries:
-            summaries[s["path"]] = sanitize_generated_content(s["content"])
-
-        return summaries
-
-    def _process_file_summaries_chunk(self, chunk: Dict[str, str]) -> Dict[str, str]:
-        """
-        Generate per-file summaries for the given code chunk.
-
-        Returns a dict mapping expected summary paths (relative to summaries root)
-        to sanitized Markdown contents.
-        """
-        result = FileSummariesCrew().crew().kickoff(inputs={
-            "code_chunk": chunk,
-        })
-        file_summaries = load_json_output(result, SUMMARIES_SCHEMA, 0)
-
-        summaries: Dict[str, str] = {}
-        for s in file_summaries:
-            summaries[s["path"]] = sanitize_generated_content(s["content"])
-        return summaries
-
-    def _process_module_summaries_from_file_summaries(self, chunk: Dict[str, str]) -> Dict[str, str]:
-        """
-        Generate per-module summaries using ONLY the per-file summaries as context.
-
-        The provided chunk must map source file relative paths (e.g., "pkg/mod.py")
-        to the Markdown content of their corresponding file summaries. No real code
-        is included, satisfying the requirement to base module summaries on summaries.
-        """
-        result = ModuleSummariesCrew().crew().kickoff(inputs={
-            "invidual_summaries": chunk,
-        })
-        module_summaries = load_json_output(result, SUMMARIES_SCHEMA, 0)
-
-        summaries: Dict[str, str] = {}
-        for s in module_summaries:
-            summaries[s["path"]] = sanitize_generated_content(s["content"])
-        return summaries
+    def _process_module_summaries_from_file_summaries(self, file_summaries: Dict[str, str]) -> Dict[str, str]:
+        return generate_module_summaries_from_file_summaries(file_summaries)
 
     @start()
     def process_inputs(self) -> Dict[str, Any]:
@@ -116,10 +66,22 @@ class IterateFlow(Flow):
     @listen(identify_project_structure)
     def generate_summaries_if_needed(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         # If summaries already exist, do nothing
-        if self.summaries_dir and self.summaries_dir.exists():
+        if self.summaries_dir and self.summaries_dir.exists() and any(self.summaries_dir.iterdir()):
             return inputs
 
-        self.summaries_dir = self.repo_dir / "summaries"
+        # Use crew to decide summaries_dir based on src_dir, docs_dir, and test_dirs
+        result = SummariesDirCrew().crew().kickoff(inputs={
+            "src_dir": str(self.src_dir),
+            "docs_dir": str(self.docs_dir) if self.docs_dir else None,
+            "test_dirs": [str(p) for p in self.test_dirs],
+        })
+        decided = load_json_output(result, SUMMARIES_DIR_SCHEMA, 0)
+        # decided is dict-like from schema root
+        summaries_dir_str = decided.get("summaries_dir") if isinstance(decided, dict) else decided[0]["summaries_dir"]
+        try:
+            self.summaries_dir = Path(summaries_dir_str).resolve()
+        except Exception:
+            self.summaries_dir = self.repo_dir / "summaries"
         self.summaries_dir.mkdir(parents=True, exist_ok=True)
 
         py_paths = inputs["py_paths"]
@@ -129,33 +91,26 @@ class IterateFlow(Flow):
         for folder in folders:
             modules[folder] = [p for p in py_paths if p.parent == folder]
 
-        summaries: Dict[str, str] = {}
-        chunk: Dict[str, str] = {}
-        acc = 0
-        # Process each group in manageable chunks by total characters
-        for script_paths in modules.items().values():
+        # One crew call per module (folder)
+        for script_paths in modules.values():
+            chunk: List[str, str] = []
             for path in script_paths:
-                path_str = str(path.relative_to(self.src_dir))
+                rel_path = str(path.relative_to(self.src_dir))
                 try:
-                    chunk[path_str] = path.read_text(encoding="utf-8")
+                    chunk.append({"path": rel_path, "content": path.read_text(encoding="utf-8")})
                 except Exception:
                     continue
-                acc += len(chunk[path_str])
-            if acc > settings.MAX_CHARS and chunk:
-                # run crew for current chunk
-                chunk_summaries = self._process_summaries_chunk(chunk)
-                summaries.update(chunk_summaries)
-                # reset
-                chunk = {}
-                acc = 0
-
-        if chunk:
-            chunk_summaries = self._process_summaries_chunk(chunk)
-            summaries.update(chunk_summaries)
-
-        if summaries:
-            write_file_map(summaries, str(self.repo_dir), "summaries")
-            self.summaries_dir = self.repo_dir / "summaries"
+            if not chunk:
+                continue
+            file_summaries = self._process_file_summaries_chunk(chunk)
+            if not file_summaries:
+                continue
+            module_summaries = self._process_module_summaries_from_file_summaries(file_summaries)
+            summaries: Dict[str, str] = {}
+            summaries.update(file_summaries)
+            summaries.update(module_summaries)
+            if summaries:
+                write_file_map(summaries, str(self.summaries_dir))
 
         return inputs
 
@@ -179,27 +134,34 @@ class IterateFlow(Flow):
 
         new_file_summaries: Dict[str, str] = {}
         if missing_file_rel_paths:
-            chunk: Dict[str, str] = {}
-            acc = 0
-            for rel_str in missing_file_rel_paths:
-                code_path = (self.src_dir / rel_str).resolve()
-                try:
-                    content = code_path.read_text(encoding="utf-8")
-                except Exception:
+            # Agrupar por módulo (carpeta) y hacer una única llamada por módulo
+            py_paths = inputs["py_paths"]
+            module_dirs = sorted({p.parent for p in py_paths})
+            missing_set = set(missing_file_rel_paths)
+            for module_dir in module_dirs:
+                # Archivos faltantes dentro de este módulo
+                rel_missing_in_module: list[str] = [
+                    str(p.relative_to(self.src_dir))
+                    for p in py_paths
+                    if p.parent == module_dir and str(p.relative_to(self.src_dir)) in missing_set
+                ]
+                if not rel_missing_in_module:
                     continue
-                chunk[rel_str] = content
-                acc += len(content)
-                if acc > settings.MAX_CHARS:
-                    generated = self._process_file_summaries_chunk(chunk)
-                    new_file_summaries.update(generated)
-                    chunk = {}
-                    acc = 0
-            if chunk:
+                chunk: List[Dict[str, str]] = []
+                for rel_str in rel_missing_in_module:
+                    code_path = (self.src_dir / rel_str).resolve()
+                    try:
+                        content = code_path.read_text(encoding="utf-8")
+                    except Exception:
+                        continue
+                    chunk.append({"path": rel_str, "content": content})
+                if not chunk:
+                    continue
                 generated = self._process_file_summaries_chunk(chunk)
                 new_file_summaries.update(generated)
 
         if new_file_summaries:
-            write_file_map(new_file_summaries, str(self.repo_dir), "summaries")
+            write_file_map(new_file_summaries, str(self.summaries_dir))
 
         # 2) Check and generate missing MODULE summaries using existing file summaries
         # Determine module folders (parents of Python files)
@@ -233,7 +195,7 @@ class IterateFlow(Flow):
                 new_module_summaries.update(generated)
 
         if new_module_summaries:
-            write_file_map(new_module_summaries, str(self.repo_dir), "summaries")
+            write_file_map(new_module_summaries, str(self.summaries_dir))
         return inputs
 
     @listen(verify_and_fill_missing_summaries)
