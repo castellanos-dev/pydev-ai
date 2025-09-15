@@ -1,5 +1,8 @@
 generate_code:
   description: >
+    Strictly follow the instructions:
+    `{project_design}`
+
     Using the build plan, generate the python code for the project.
     The file contents should be ready to be written to disk.
     Keep the code simple and concise. The code should be production-ready and well-structured.
@@ -12,9 +15,6 @@ generate_code:
       2. Include minimal but effective docstrings
       3. Ensure code is production-ready, well-structured and efficient
       4. Include appropriate error handling
-
-    Strictly follow the project design:
-    `{project_design}`
   expected_output: >
     Output JSON format:
     {'root': [{

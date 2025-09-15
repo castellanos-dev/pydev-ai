@@ -1,0 +1,62 @@
+generate_diffs:
+  description: >
+    Instructions:
+    `{instructions}`
+    File code:
+    `{file_code}`
+
+    Given a mapping of file paths to their current contents, generate minimal,
+    safe unified diffs (patches) to implement the requested changes. Prefer
+    localized edits. Don't produce complete file contents.
+
+    The diff MUST be a valid unified diff applying to the given file path, with
+    correct file headers and context. If no change is needed for a file, omit it.
+
+    Details per item:
+      - path: relative path to the file being changed
+      - content_diff: unified diff to apply
+
+  expected_output: >
+    Output JSON format:
+    {
+      'root': [{
+        "path": str,
+        "content_diff": str
+      }]
+    }
+    Use compact language. Do not add prose outside JSON.
+  agent: code_diff_generator
+
+review_diffs:
+  description: >
+    Instructions:
+    `{instructions}`
+    File code:
+    `{file_code}`
+
+    Review the proposed diffs for correctness and safety. Only the diff fixed.
+
+    Issues to report:
+      - Diff does not apply cleanly against provided content
+      - Changes introduce syntax or type errors+
+      - Missing docstrings. Docstrings are required for all public APIs and must be minimal.
+
+    Details per item:
+      - path: relative path to the file being changed
+      - content_diff: unified diff to apply
+
+    IMPORTANT: Perform the minimum posible changes to the original diff. The number of output diffs
+    must be the same as the original diffs, mapping the input diffs to the output diffs.
+
+  expected_output: >
+    Output JSON format:
+    {
+      'root': [{
+        "path": str,
+        "content_diff": str
+      }]
+    }
+    Use compact language. Do not add prose outside JSON.
+  agent: reviewer
+  context:
+    - generate_diffs

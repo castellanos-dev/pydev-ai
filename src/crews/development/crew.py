@@ -31,6 +31,8 @@ class JuniorDevelopmentCrew:
         self.llm_reasoning = llms()["reasoning"]
 
         self.llm_developer = llms()["light"]
+        self.llm_reviewer = llms()["light"]
+        self.llm_debugger = llms()["light"]
 
     @agent
     def code_generator(self) -> Agent:
@@ -45,7 +47,7 @@ class JuniorDevelopmentCrew:
     def reviewer(self) -> Agent:
         return Agent(
             config=self.agents_config["reviewer"],  # type: ignore[index]
-            llm=self.llm_medium,
+            llm=self.llm_reviewer,
             verbose=True,
         )
 
@@ -53,7 +55,7 @@ class JuniorDevelopmentCrew:
     def debugger(self) -> Agent:
         return Agent(
             config=self.agents_config["debugger"],  # type: ignore[index]
-            llm=self.llm_medium,
+            llm=self.llm_debugger,
             verbose=True,
         )
 
@@ -100,6 +102,8 @@ class SeniorDevelopmentCrew(JuniorDevelopmentCrew):
     def __init__(self):
         super().__init__()
         self.llm_developer = llms()["medium"]
+        self.llm_reviewer = llms()["light"]
+        self.llm_debugger = llms()["light"]
 
 
 class LeadDevelopmentCrew(JuniorDevelopmentCrew):
@@ -111,3 +115,5 @@ class LeadDevelopmentCrew(JuniorDevelopmentCrew):
     def __init__(self):
         super().__init__()
         self.llm_developer = llms()["reasoning"]
+        self.llm_reviewer = llms()["medium"]
+        self.llm_debugger = llms()["medium"]

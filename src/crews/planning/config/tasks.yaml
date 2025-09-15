@@ -1,0 +1,126 @@
+select_relevant_files:
+  description: >-
+    user_prompt:
+    ```{user_prompt}```
+
+    module_summaries:
+    ```json
+    {module_summaries}
+    ```
+
+    Task:
+    Based on the user's prompt and the set of per-module summaries
+    (no source code), return an array of file paths (.py) from the module
+    structure that are relevant to addressing the prompt.
+
+    Requirements:
+      - Do not care about missing dependencies, just the project code relevant to the prompt.
+      - In case of doubt, include the file.
+
+    IMPORTANT: The output file paths must be absolute. The project source code is in the folder {src_dir}.
+
+  expected_output: >-
+    Output JSON:
+      [str]
+    Return only valid JSON. Do not add prose outside JSON.
+  agent: analyst
+
+classify_file_detail:
+  description: >-
+    user_prompt:
+    ```{user_prompt}```
+
+    relevant_file_summaries:
+    ```json
+    {relevant_file_summaries}
+    ```
+
+    Task:
+    Given the user's prompt and the JSON map of relevant file summaries
+    (path -> markdown content), divide the files into two sets:
+    - summaries_only: summaries are sufficient to plan at high confidence
+    - need_code: reading the file source code is required to plan accurately
+
+    Guidance:
+      - Prefer summaries_only when the summary contains clear public APIs,
+        invariants, and usage notes adequate for planning.
+      - Prefer need_code when behavior, side-effects, or contracts are unclear.
+
+    IMPORTANT: The size of the final lists can be smaller than the original sets
+    because some files may be irrelevant to the prompt. Empty lists are valid.
+
+  expected_output: >-
+    Output JSON:
+      {
+        "summaries_only": [str],
+        "need_code": [str]
+      }
+    Return only valid JSON. Do not add prose outside JSON.
+  agent: classifier
+
+produce_action_plan:
+  description: >-
+    project_files:
+    ```
+    {file_list}
+    ```
+
+    user_prompt:
+    ```{user_prompt}```
+
+    summaries:
+    ```json
+    {summaries}
+    ```
+
+    code:
+    ```json
+    {code}
+    ```
+
+    Task:
+    Produce an actionable, detailed step-by-step plan to fulfill the user's
+    request. Use only the provided context (summaries and code excerpts when
+    present). Do not suggest implementing code; instead, enumerate the tasks
+    needed to implement the solution, with ordering, dependencies, and expected
+    artifacts for each step.
+
+    Requirements:
+      - The plan MUST be a recipe of steps, not code.
+      - Include references to files by path when relevant.
+      - Keep steps small, testable, and logically sequenced.
+      - Do NOT define file references that are not coherent with the project structure.
+      - Only empty files can be created. The content should be added later.
+
+    Each step will be executed independently, so the plan should be a sequence of steps
+    that can be executed in any order. Each step should be properly detailed to be executed
+    independently.
+
+    Plan steps should only refer to code modifications that are necessary to fulfill
+    the user's request. Do NOT include steps related to git, testing, documentation, etc.
+
+    ALLOWED STEP TYPES:
+      - Modify code
+      - Create new files
+      - Delete files
+      - Rename files
+      - Move files
+      - Copy files
+      - Create new directories
+      - Delete directories
+
+    IMPORTANT: The output file paths must be absolute. The project source code is in the folder {src_dir}.
+
+    Details:
+      - points: Deeply-reasoned implementation effort of the classes and functions:
+          * 1 for tasks that can be implemented by a junior developer.
+          * 2 for tasks that require a senior developer.
+          * 3 for tasks that require a lead developer.
+
+  expected_output: >-
+    Output JSON:
+      [
+        {"step": int, "title": str, "description": str, "artifacts": [str], "type": str, points: int}
+      ]
+    Return only valid JSON. Do not add prose outside JSON. Use ENGLISH.
+  agent: planner

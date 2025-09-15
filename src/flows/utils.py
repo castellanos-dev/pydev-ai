@@ -165,6 +165,31 @@ def load_json_output(result: TaskOutput, schema: str, task: int = -1) -> List[Di
     return obj
 
 
+def load_json_list(result: TaskOutput, schema: str, task: int = -1) -> List[Any]:
+    """
+    Convenience wrapper to parse a list-shaped JSON output.
+    Returns an empty list if the parsed data is not a list.
+    """
+    data = load_json_output(result, schema, task)
+    if not isinstance(data, list):
+        return []
+    return data
+
+
+def load_json_object(result: TaskOutput, schema: str, task: int = -1) -> Dict[str, Any]:
+    """
+    Convenience wrapper to parse an object-shaped JSON output.
+    Handles the common case where the model returns a single-item list containing the object.
+    Returns an empty dict if parsing fails to produce an object.
+    """
+    data = load_json_output(result, schema, task)
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return data[0]
+    return {}
+
+
 def _fix_json_text(original_text: str, expected_schema: str) -> str:
     """
     Use the JSONFixerCrew to repair malformed JSON according to an expected schema.
