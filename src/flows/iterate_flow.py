@@ -1,7 +1,9 @@
 from __future__ import annotations
 from pathlib import Path
+import os
 from typing import Dict, Any, List
 import shutil
+import yaml
 from crewai.flow import Flow, start, listen
 from .utils import ensure_repo, load_json_output, load_json_list, load_json_object
 from ..crews.project_structure.crew import ProjectStructureCrew
@@ -31,6 +33,8 @@ from ..crews.development_diff.crew import (
 from ..crews.development_diff.output_format.generate_diffs import GENERATE_DIFFS_SCHEMA
 from ..crews.fix_integrator.crew import FixIntegratorCrew
 from .utils import sanitize_generated_content
+from ..crews.tests_conf.crew import TestsConfCrew
+from ..crews.tests_conf.output_format.tests_conf import TESTS_CONF_SCHEMA
 from ..tools.file_system import (
     write_empty_files,
     delete_files,
@@ -99,6 +103,91 @@ class IterateFlow(Flow):
             chunk[rel_py] = md_content
         return chunk
 
+    def _write_pydev_snapshot(self) -> None:
+        """
+        Write a full snapshot of the current project state to pydev.yaml.
+        Fields may be None or empty when not yet determined.
+        """
+        try:
+            if hasattr(self, "pydev_yaml_path") and self.pydev_yaml_path:
+                pydev_path = self.pydev_yaml_path
+            elif self.src_dir and self.src_dir.exists():
+                pydev_path = (self.src_dir.parent / "pydev.yaml").resolve()
+            else:
+                pydev_path = (self.repo_dir / "pydev.yaml").resolve()
+            data: Dict[str, Any] = {
+                "src_dir": self._to_repo_relative(self.src_dir),
+                "docs_dir": self._to_repo_relative(self.docs_dir),
+                "test_dirs": [self._to_repo_relative(p) for p in (self.test_dirs or [])],
+                "summaries_dir": self._to_repo_relative(self.summaries_dir),
+                "test": {
+                    "framework": self.test_framework,
+                    "command": self.test_command if self.test_command is not None else "",
+                    "description": self.test_description if self.test_description is not None else "",
+                },
+            }
+            with pydev_path.open("w", encoding="utf-8") as fp:
+                yaml.safe_dump(data, fp, allow_unicode=True, sort_keys=False)
+        except Exception:
+            pass
+
+    def _resolve_repo_path(self, value: str | None) -> Path | None:
+        if not value:
+            return None
+        try:
+            path = Path(value)
+            if not path.is_absolute():
+                path = (self.repo_dir / path)
+            return path.resolve()
+        except Exception:
+            return None
+
+    def _to_repo_relative(self, path: Path | None) -> str | None:
+        if not path:
+            return None
+        try:
+            return os.path.relpath(str(Path(path).resolve()), start=str(self.repo_dir))
+        except Exception:
+            return None
+
+    def _load_pydev_snapshot(self) -> None:
+        """
+        Load initial configuration from pydev.yaml if present, resolving paths
+        relative to repo_dir when necessary.
+        """
+        try:
+            pydev_path = getattr(self, "pydev_yaml_path", None)
+            if not pydev_path:
+                return
+            p = Path(pydev_path)
+            if not p.exists() or not p.is_file():
+                return
+            with p.open("r", encoding="utf-8") as fp:
+                data = yaml.safe_load(fp) or {}
+
+            # Directories
+            for key in ("src_dir", "docs_dir", "summaries_dir"):
+                resolved = self._resolve_repo_path(data.get(key))
+                if key == "src_dir":
+                    self.src_dir = resolved or self.src_dir
+                elif key == "docs_dir":
+                    self.docs_dir = resolved or self.docs_dir
+                else:
+                    self.summaries_dir = resolved or self.summaries_dir
+
+            tds = [self._resolve_repo_path(td) for td in (data.get("test_dirs") or [])]
+            self.test_dirs = [td for td in tds if td] or self.test_dirs
+
+            # Test configuration
+            test_cfg = data.get("test") or {}
+            self.test_framework = test_cfg.get("framework", self.test_framework)
+            self.test_command = test_cfg.get("command", self.test_command)
+            self.test_description = test_cfg.get("description", self.test_description)
+
+        except Exception:
+            # Best-effort loader; ignore errors
+            pass
+
     def _regenerate_single_file_summary(self, rel_path: str, new_file_content: str) -> None:
         """
         Delete and regenerate the per-file summary for a given repo-relative Python file
@@ -129,6 +218,25 @@ class IterateFlow(Flow):
         user_prompt = self.state["user_prompt"]
         repo = self.state["repo"]
         self.repo_dir = Path(ensure_repo(repo, check_empty=True)).resolve()
+        self.summaries_dir = None
+        self.test_dirs = None
+        self.src_dir = None
+        self.docs_dir = None
+        self.test_framework = None
+        self.test_command = None
+        self.test_description = None
+        # Locate pydev.yaml by walking repo once; prefer nearest to repo root
+        found_pydev: Path | None = None
+        try:
+            for dirpath, _dirnames, filenames in os.walk(self.repo_dir):
+                if "pydev.yaml" in filenames:
+                    found_pydev = Path(dirpath) / "pydev.yaml"
+                    break
+        except Exception:
+            found_pydev = None
+        self.pydev_yaml_path = (found_pydev or (self.repo_dir / "pydev.yaml")).resolve()
+        # Attempt to load initial state from pydev.yaml if available
+        self._load_pydev_snapshot()
         return {
             "user_prompt": user_prompt,
         }
@@ -137,12 +245,17 @@ class IterateFlow(Flow):
     def identify_project_structure(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
 
         # Collect relevant files using glob: .py, .md, .rst
-        patterns = ["**/*.py", "**/*.md", "**/*.rst"]
-        file_list = []
-        for pattern in patterns:
-            file_list.extend(sorted(str(p) for p in self.repo_dir.glob(pattern)))
+        patterns = ["**/*.md", "**/*.rst"]
+        repo_py_files_list = sorted(str(p) for p in self.repo_dir.glob("**/*.py"))
+        file_list = sorted(str(p) for pat in patterns for p in self.repo_dir.glob(pat))
+        file_list.extend(repo_py_files_list)
 
-        # Run the ProjectStructure crew
+        # If pydev.yaml already provided structure, skip detection
+        if self.src_dir and self.src_dir.exists() and self.test_dirs:
+            py_paths = [p for p in self.src_dir.rglob("*.py") if p.name != "__init__.py"]
+            return {**inputs, "file_list": file_list, "py_paths": py_paths, "repo_py_files_list": repo_py_files_list}
+
+        # 2) Fallback: Run the ProjectStructure crew
         result = ProjectStructureCrew().crew().kickoff(
             inputs={
                 "files": file_list,
@@ -154,11 +267,94 @@ class IterateFlow(Flow):
         self.docs_dir = Path(structure["docs_dir"]).resolve() if structure["docs_dir"] else None
         self.test_dirs = [Path(test_dir).resolve() for test_dir in structure["test_dirs"]]
         self.summaries_dir = Path(structure["summaries_dir"]).resolve() if structure.get("summaries_dir") else None
+        # Snapshot after discovering structure
+        self._write_pydev_snapshot()
         # Collect Python files excluding __init__.py
         py_paths = [p for p in self.src_dir.rglob("*.py") if p.name != "__init__.py"]
-        return {**inputs, "file_list": file_list, "py_paths": py_paths}
+        return {**inputs, "file_list": file_list, "py_paths": py_paths, "repo_py_files_list": repo_py_files_list}
 
     @listen(identify_project_structure)
+    def generate_tests_conf(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Determine test framework, command, and description. If pydev.yaml already
+        provides non-null test configuration, skip detection.
+        """
+        try:
+            # If test configuration already loaded from pydev.yaml, skip
+            if all([
+                self.test_framework is not None,
+                self.test_command is not None,
+                self.test_description is not None,
+            ]):
+                return inputs
+
+            # Build a small set of representative test-related files to help detection
+            sample_paths: list[Path] = []
+            for td in self.test_dirs:
+                # conftest.py is highly indicative of pytest
+                conf = td / "conftest.py"
+                if conf.exists() and conf.is_file():
+                    sample_paths.append(conf)
+                # collect a few test_*.py files
+                for f in td.glob("**/test_*.py"):
+                    sample_paths.append(f)
+                    if len(sample_paths) >= 10:
+                        break
+                if len(sample_paths) >= 10:
+                    break
+
+            # Also include common test-related configuration files from repo root
+            config_names = [
+                "pyproject.toml",
+                "pytest.ini",
+                "tox.ini",
+                "setup.cfg",
+                "noxfile.py",
+                ".coveragerc",
+                "Makefile",
+            ]
+            for name in config_names:
+                p = self.repo_dir / name
+                if p.exists() and p.is_file():
+                    sample_paths.append(p)
+
+            # Read and truncate samples
+            def read_truncated(path: Path, limit: int = 2000) -> str:
+                try:
+                    text = path.read_text(encoding="utf-8", errors="ignore")
+                    return text[:limit]
+                except Exception:
+                    return ""
+
+            samples_lines: list[str] = []
+            seen: set[str] = set()
+            for sp in sample_paths[:10]:
+                rel = str(sp.resolve())
+                if rel in seen:
+                    continue
+                seen.add(rel)
+                samples_lines.append(f"=== {rel} ===")
+                samples_lines.append(read_truncated(sp))
+            samples_str = "\n\n".join(samples_lines)
+
+            tests_conf_result = TestsConfCrew().crew().kickoff(inputs={
+                "src_dir": str(self.src_dir),
+                "test_dirs": [str(p) for p in self.test_dirs],
+                "file_list": inputs.get("repo_py_files_list", []),
+                "samples": samples_str,
+            })
+            decided = load_json_object(tests_conf_result, TESTS_CONF_SCHEMA)
+            self.test_framework = decided.get("framework")
+            self.test_command = decided.get("command", "")
+            self.test_description = decided.get("description", "")
+            # Snapshot after deciding tests
+            self._write_pydev_snapshot()
+        except Exception:
+            # best-effort; do not stop the flow
+            pass
+        return inputs
+
+    @listen(generate_tests_conf)
     def generate_summaries_if_needed(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         # If summaries already exist, do nothing
         if self.summaries_dir and self.summaries_dir.exists() and any(self.summaries_dir.iterdir()):
@@ -178,6 +374,8 @@ class IterateFlow(Flow):
         except Exception:
             self.summaries_dir = self.repo_dir / "summaries"
         self.summaries_dir.mkdir(parents=True, exist_ok=True)
+        # Snapshot after summaries_dir is set
+        self._write_pydev_snapshot()
 
         py_paths = inputs["py_paths"]
         folders = set(file_path.parent for file_path in py_paths)

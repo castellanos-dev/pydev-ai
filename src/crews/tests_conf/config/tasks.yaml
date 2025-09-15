@@ -1,0 +1,41 @@
+determine_tests_conf:
+  description: >
+    You are given structured context to determine how unit tests are implemented and run.
+
+    Context:
+    - src_dir: "{src_dir}"
+    - test_dirs:
+      {test_dirs}
+    - file_list (subset):
+      {file_list}
+    - sample_files (subset, truncated):
+      ```
+      {samples}
+      ```
+
+    Requirements:
+    - Detect which primary framework is used: one of pytest|unittest|django|script|null.
+      Selection rules (highest priority wins):
+        1) script: If a top-level script like `runtests.py`, `run_tests.py`... wrapper exists and clearly intended to run tests, select `script` and set `command` to execute it (e.g., `python runtests.py`).
+        2) django: If Django project is detected (presence of `manage.py` and typical settings/apps) or tests rely on Django's test runner, set `command` to `python manage.py test -v 2` (omit options if uncertain).
+        3) pytest: If pytest is detected (conftest.py, import pytest, pyproject/pytest.ini), set `command` to `python -m pytest -q`.
+        4) unittest: Fallback. Use `python -m unittest discover -s <tests_dir> -p 'test*.py'` (choose a primary tests dir, default `tests`).
+        5) null: If no framework is detected, set `command` to an empty string.
+    - Provide the exact shell command to run the full test suite from repo root, per the chosen framework.
+      If `tox`/`nox` is present and clearly configured, you may mention them in the description, but the `command` must remain a direct python/django/script invocation.
+    - Provide a brief description of how tests are organized (directories, naming patterns, fixtures/conftest usage, test base classes) and which framework features are used.
+    - Include fields suitable for serialization to YAML.
+
+    Hints you can use:
+    - Presence of `conftest.py` indicates pytest.
+    - In-code imports: `import pytest` or `from pytest import ...` vs `import unittest`.
+
+  expected_output: >
+    Output JSON format:
+    {
+      "framework": "pytest|unittest|django|script|null",
+      "command": str,
+      "description": str
+    }
+    Use compact JSON; do not add prose outside JSON.
+  agent: test_analyst

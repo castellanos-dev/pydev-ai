@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, Optional
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel
 
 
 PROJECT_STRUCTURE_SCHEMA = '''
@@ -13,12 +13,8 @@ PROJECT_STRUCTURE_SCHEMA = '''
 '''
 
 
-class ProjectStructure(BaseModel):
+class ProjectStructureOutput(BaseModel):
     code_dir: str
     docs_dir: Optional[str]
     test_dirs: List[str]
     summaries_dir: Optional[str]
-
-
-class ProjectStructureOutput(RootModel[ProjectStructure]):
-    pass

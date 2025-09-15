@@ -34,11 +34,11 @@ analyze_project_structure:
 
   expected_output: >
     Output JSON format:
-    {'root': {
+    {
       "code_dir": str,
       "docs_dir": str|null,
       "test_dirs": [str],
       "summaries_dir": str|null
-    }}
+    }
     Use compact JSON; do not add prose outside JSON.
   agent: structure_analyst
