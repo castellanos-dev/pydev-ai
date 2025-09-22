@@ -1027,7 +1027,7 @@ class IterateFlow(Flow):
                         modules_to_refresh.add(Path(path).parent)
                     except Exception:
                         pass
-                    # self._regenerate_single_file_summary(path, file_result)  # TODO: uncomment
+                    self._regenerate_single_file_summary(path, file_result)
             except Exception:
                 # Best-effort; do not fail on summary regeneration issues
                 pass
