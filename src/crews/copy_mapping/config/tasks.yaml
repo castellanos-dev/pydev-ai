@@ -1,8 +1,12 @@
 produce_copy_map:
   description: >-
+    input path: {input_path}
+
     You are given a JSON description containing copy specifications.
     Return a deterministic JSON object mapping each source file path to
-    its destination path: {"old_path": "new_path"} per entry.
+    its destination path: {"old_path": "new_path"} per entry. The old path is the
+    input path. The new path is the input path with the old name replaced with the
+    new name.
 
     Normalize the result into a single flat JSON object where keys are source paths
     and values are destination paths. Do not include duplicates; the last occurrence wins.

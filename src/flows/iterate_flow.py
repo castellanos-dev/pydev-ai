@@ -32,17 +32,33 @@ from ..crews.development_diff.crew import (
 )
 from ..crews.development_diff.output_format.generate_diffs import GENERATE_DIFFS_SCHEMA
 from ..crews.fix_integrator.crew import FixIntegratorCrew
+from ..crews.tests_integrator.crew import TestsIntegratorCrew
 from .utils import sanitize_generated_content
 from ..crews.tests_conf.crew import TestsConfCrew
 from ..crews.tests_conf.output_format.tests_conf import TESTS_CONF_SCHEMA
+from ..crews.tests_planning.crew import (
+    JuniorTestsPlanningCrew,
+    SeniorTestsPlanningCrew,
+    LeadTestsPlanningCrew,
+)
+from ..crews.tests_relevance.crew import TestsRelevanceCrew
+from .utils import load_json_list, load_json_output
+from ..crews.tests_relevance.output_format.relevant_tests import RELEVANT_TESTS_SCHEMA
+from ..crews.tests_planning.output_format.test_plan import TEST_PLAN_SCHEMA
+from ..crews.tests_implementation.crew import (
+    JuniorTestsImplementationCrew,
+    SeniorTestsImplementationCrew,
+    LeadTestsImplementationCrew,
+)
+from ..crews.tests_implementation.output_format.implement_tests import IMPLEMENT_TESTS_SCHEMA
 from ..tools.file_system import (
-    write_empty_files,
-    delete_files,
-    create_directories,
-    delete_directories,
-    rename_files,
-    move_files,
-    copy_files,
+    write_empty_file,
+    delete_file,
+    create_directory,
+    delete_directory,
+    rename_file,
+    move_file,
+    copy_file,
 )
 
 
@@ -56,10 +72,10 @@ class IterateFlow(Flow):
     """
 
     def _process_file_summaries_chunk(self, chunk: List[Dict[str, str]]) -> Dict[str, str]:
-        return generate_file_summaries_from_chunk(chunk)
+        return generate_file_summaries_from_chunk(chunk, str(self.summaries_dir))
 
     def _process_module_summaries_from_file_summaries(self, file_summaries: Dict[str, str]) -> Dict[str, str]:
-        return generate_module_summaries_from_file_summaries(file_summaries)
+        return generate_module_summaries_from_file_summaries(file_summaries, str(self.summaries_dir))
 
     def _collect_module_file_summaries_from_py_paths(self, module_dir: Path, py_paths: List[Path]) -> Dict[str, str]:
         """
@@ -124,6 +140,7 @@ class IterateFlow(Flow):
                     "framework": self.test_framework,
                     "command": self.test_command if self.test_command is not None else "",
                     "description": self.test_description if self.test_description is not None else "",
+                    "examples": getattr(self, "test_examples", []) or [],
                 },
             }
             with pydev_path.open("w", encoding="utf-8") as fp:
@@ -183,6 +200,7 @@ class IterateFlow(Flow):
             self.test_framework = test_cfg.get("framework", self.test_framework)
             self.test_command = test_cfg.get("command", self.test_command)
             self.test_description = test_cfg.get("description", self.test_description)
+            self.test_examples = test_cfg.get("examples", getattr(self, "test_examples", [])) or []
 
         except Exception:
             # Best-effort loader; ignore errors
@@ -212,6 +230,46 @@ class IterateFlow(Flow):
         ])
         if regenerated:
             write_file_map(regenerated, str(self.summaries_dir))
+
+    def _get_test_inputs_payload(self) -> Dict[str, Any]:
+        payload = {}
+        if self.test_dirs and len(self.test_dirs) > 0:
+            self.test_file_paths = sorted(str(p) for test_dir in self.test_dirs for p in test_dir.glob("**/*.py"))
+            payload = {
+                "framework": self.test_framework or "",
+                "command": self.test_command or "",
+                "description": self.test_description or "",
+                "test_files": self.test_file_paths,
+                "examples": getattr(self, "test_examples", []) or [],
+            }
+        return payload
+
+    def _should_test_be_modified(self) -> bool:
+        return self.test_dirs is not None
+
+    def _select_relevant_test_file(
+        self,
+        src_file: str,
+        action_step_detail: str,
+        test_file_paths: List[str],
+    ) -> str:
+        """
+        Given all available test_files, a textual detail of one action-plan step,
+        and the list of modified code files (repo-relative), return the single
+        relevant test file that likely needs modifications due to code changes.
+        This uses the TestsRelevance crew for selection.
+        """
+        if not src_file:
+            return None
+        result = TestsRelevanceCrew().crew().kickoff(inputs={
+            "src_file": str(src_file),
+            "action_step_detail": action_step_detail or "",
+            "test_file_paths": test_file_paths,
+        })
+        decided = load_json_output(result, RELEVANT_TESTS_SCHEMA, 0)
+        if isinstance(decided, str) and decided:
+            return decided
+        return None
 
     @start()
     def process_inputs(self) -> Dict[str, Any]:
@@ -347,6 +405,8 @@ class IterateFlow(Flow):
             self.test_framework = decided.get("framework")
             self.test_command = decided.get("command", "")
             self.test_description = decided.get("description", "")
+            # Accept examples provided by TestsConfCrew
+            self.test_examples = decided.get("examples", []) or []
             # Snapshot after deciding tests
             self._write_pydev_snapshot()
         except Exception:
@@ -560,13 +620,13 @@ class IterateFlow(Flow):
         Execute the file-system related steps from the action plan.
 
         Supported types -> function mapping:
-          - "Create new files" -> write_empty_files
-          - "Delete files" -> delete_files
-          - "Create new directories" -> create_directories
-          - "Delete directories" -> delete_directories
-          - "Rename files" -> rename_files
-          - "Move files" -> move_files
-          - "Copy files" -> copy_files
+          - "Create new file" -> write_empty_files
+          - "Delete file" -> delete_files
+          - "Create new directory" -> create_directories
+          - "Delete directory" -> delete_directories
+          - "Rename file" -> rename_files
+          - "Move file" -> move_files
+          - "Copy file" -> copy_files
 
         "Modify code" steps are recorded but left unimplemented for now.
         """
@@ -640,32 +700,86 @@ class IterateFlow(Flow):
                     except Exception:
                         pass
 
-        def _mirror_pair_files(pairs: List[tuple[str, str]], op: str) -> None:
+        def _mirror_move_file(src: str, dst: str, op: str) -> None:
             if not self.summaries_dir:
                 return
-            for src, dst in pairs:
-                # Only mirror for Python source files under src_dir
-                if not _is_py_file_under_src(src) and not _is_py_file_under_src(dst):
-                    continue
-                sp_src = _summary_path_for_code(src)
-                sp_dst = _summary_path_for_code(dst)
-                if not sp_dst:
-                    continue
-                sp_dst.parent.mkdir(parents=True, exist_ok=True)
-                if sp_src and sp_src.exists():
-                    try:
-                        if op in {"rename", "move"}:
-                            sp_src.rename(sp_dst)
-                        elif op == "copy":
-                            shutil.copy2(str(sp_src), str(sp_dst))
-                    except Exception:
-                        # As a fallback, ensure destination exists
-                        if not sp_dst.exists():
-                            sp_dst.touch()
-                else:
-                    # If source summary doesn't exist, create an empty destination summary
+            # Only mirror for Python source files under src_dir
+            if not _is_py_file_under_src(src) and not _is_py_file_under_src(dst):
+                return
+            sp_src = _summary_path_for_code(src)
+            sp_dst = _summary_path_for_code(dst)
+            if not sp_dst:
+                return
+            sp_dst.parent.mkdir(parents=True, exist_ok=True)
+            if sp_src and sp_src.exists():
+                try:
+                    if op in {"rename", "move"}:
+                        sp_src.rename(sp_dst)
+                    elif op == "copy":
+                        shutil.copy2(str(sp_src), str(sp_dst))
+                except Exception:
+                    # As a fallback, ensure destination exists
                     if not sp_dst.exists():
                         sp_dst.touch()
+            else:
+                # If source summary doesn't exist, create an empty destination summary
+                if not sp_dst.exists():
+                    sp_dst.touch()
+
+        # --- Helpers to mirror operations into tests directories ---
+        def _mirror_tests_delete_files(file_paths: List[str]) -> None:
+            if not self._should_test_be_modified():
+                return
+            for fp in file_paths:
+                if not _is_py_file_under_src(fp):
+                    continue
+                # Prefer path suggested by mapping helper if it exists
+                try:
+                    src_rel = str(Path(fp).resolve().relative_to(self.src_dir))
+                    mapped = _map_src_path_to_test_path(src_rel, [])  # type: ignore[arg-type]
+                    if mapped:
+                        tp = (self.repo_dir / mapped).resolve() if not mapped.is_absolute() else mapped
+                        if tp.exists():
+                            try:
+                                tp.unlink()
+                            except Exception:
+                                pass
+                            continue
+                except Exception:
+                    pass
+
+        def _mirror_tests_create_dirs(dir_paths: List[str]) -> None:
+            if not self._should_test_be_modified():
+                return
+            for dp in dir_paths:
+                try:
+                    rel = Path(dp).resolve().relative_to(self.src_dir)
+                except Exception:
+                    continue
+                # TODO: añadir en el pydev.yaml un flag de si los tests estan generados como un mirror de los source files
+                # TODO: hace falta una crew que infiera la ruta
+
+        def _mirror_tests_delete_dirs(dir_paths: List[str], step_plan: List[dict]) -> None:
+            if not self._should_test_be_modified():
+                return
+            for dp in dir_paths:
+                target_dir = _get_test_path(dp, step_plan)
+                if target_dir.exists():
+                    try:
+                        shutil.rmtree(target_dir)
+                    except Exception:
+                        pass
+
+        def _mirror_tests_move_file(src: str, dst: str, step_plan: List[dict]) -> None:
+            if not self._should_test_be_modified():
+                return
+            if not _is_py_file_under_src(src) and not _is_py_file_under_src(dst):
+                return
+            target_dir = _get_test_path(src, step_plan)
+            # TODO: hacer un mirror para la estructura destino y moverlo
+
+        self.test_file_paths = None
+        test_inputs_payload = self._get_test_inputs_payload()
 
         created: list[str] = []
         deleted_files: list[str] = []
@@ -674,139 +788,198 @@ class IterateFlow(Flow):
         renamed: list[str] = []
         moved: list[str] = []
         copied: list[str] = []
-        code_todos: list[dict] = []
         errors: list[dict] = []
         modifications: list[dict] = []
+        generated_tests_code: Dict[str, Dict[str, List[str]]] = {}
         modules_to_refresh = set()
 
         for step in plan:
             step_type = (step.get("type") or "").strip()
-            artifacts: list[str] = step.get("artifacts", []) or []
+            path_str: str = (step.get("path") or "").strip()
+            if not path_str:
+                continue
             try:
-                if step_type == "Create new files":
-                    files = [resolve_path(a) for a in artifacts]
-                    created.extend(write_empty_files(files))
-                elif step_type == "Delete files":
-                    files = [resolve_path(a) for a in artifacts]
+                if step_type == "Create new file":
+                    created.append(write_empty_file(path_str))
+                elif step_type == "Delete file":
                     # Mirror summaries for deleted source files
-                    _mirror_delete_files(files)
-                    deleted_files.extend(delete_files(files))
+                    _mirror_delete_files(path_str)
+                    # Mirror tests for deleted source files
+                    _mirror_tests_delete_files(path_str)
+                    deleted_files.append(delete_file(path_str))
                     # Mark affected modules for refresh
-                    for fp in files:
-                        if _is_py_file_under_src(fp):
-                            try:
-                                rel = Path(fp).resolve().relative_to(self.src_dir)
-                                modules_to_refresh.add(rel.parent)
-                            except Exception:
-                                pass
-                elif step_type == "Create new directories":
-                    dirs = [resolve_path(a) for a in artifacts]
+                    if _is_py_file_under_src(path_str):
+                        try:
+                            rel = Path(path_str).resolve().relative_to(self.src_dir)
+                            modules_to_refresh.add(rel.parent)
+                        except Exception:
+                            pass
+                elif step_type == "Create new directory":
                     # Mirror summaries directory structure for created source directories
-                    _mirror_create_dirs(dirs)
-                    created_dirs.extend(create_directories(dirs))
-                elif step_type == "Delete directories":
-                    dirs = [resolve_path(a) for a in artifacts]
+                    _mirror_create_dirs(path_str)
+                    # Mirror tests directory structure for created source directories
+                    _mirror_tests_create_dirs(path_str)
+                    created_dirs.append(create_directory(path_str))
+                elif step_type == "Delete directory":
                     # Mirror summaries directory deletion for source directories
-                    _mirror_delete_dirs(dirs)
-                    deleted_dirs.extend(delete_directories(dirs))
-                elif step_type == "Rename files":
+                    _mirror_delete_dirs(path_str)
+                    # Mirror tests directory deletion for source directories
+                    _mirror_tests_delete_dirs(path_str)
+                    deleted_dirs.append(delete_directory(path_str))
+                elif step_type == "Rename file":
                     rm_result = RenameMappingCrew().crew().kickoff(inputs={
-                        "input": {"artifacts": artifacts},
+                        "input": {"input_path": path_str},
                     })
                     rename_map = load_json_object(rm_result, RENAME_MAP_SCHEMA)
-                    pairs = []
-                    if isinstance(rename_map, dict) and rename_map:
-                        pairs = [(resolve_path(k), resolve_path(v)) for k, v in rename_map.items() if k and v]
+                    if not rename_map:
+                        continue
+                    src = list(rename_map.keys())[0]
+                    dst = rename_map[src]
                     # Mirror summaries rename
-                    _mirror_pair_files(pairs, op="rename")
+                    _mirror_move_file(src, dst, op="rename")
+                    # Mirror tests rename
+                    _mirror_tests_move_file(src, dst, step_plan=step)
                     # Perform rename and track
-                    renamed.extend(rename_files(pairs))
-                    # Mark both source and destination modules for refresh
-                    for src_p, dst_p in pairs:
-                        if _is_py_file_under_src(src_p):
-                            try:
-                                rel = Path(src_p).resolve().relative_to(self.src_dir)
-                                modules_to_refresh.add(rel.parent)
-                            except Exception:
-                                pass
-                        if _is_py_file_under_src(dst_p):
-                            try:
-                                rel = Path(dst_p).resolve().relative_to(self.src_dir)
-                                modules_to_refresh.add(rel.parent)
-                            except Exception:
-                                pass
-                elif step_type == "Move files":
+                    renamed.append(rename_file(src, dst))
+                    if _is_py_file_under_src(src):
+                        try:
+                            rel = Path(src).resolve().relative_to(self.src_dir)
+                            modules_to_refresh.add(rel.parent)
+                        except Exception:
+                            pass
+                    if _is_py_file_under_src(dst):
+                        try:
+                            rel = Path(dst).resolve().relative_to(self.src_dir)
+                            modules_to_refresh.add(rel.parent)
+                        except Exception:
+                            pass
+                elif step_type == "Move file":
                     mm_result = MoveMappingCrew().crew().kickoff(inputs={
-                        "input": {"artifacts": artifacts},
+                        "input": {"input_path": path_str},
                     })
                     move_map = load_json_object(mm_result, MOVE_MAP_SCHEMA)
-                    pairs = []
-                    if isinstance(move_map, dict) and move_map:
-                        pairs = [(resolve_path(k), resolve_path(v)) for k, v in move_map.items() if k and v]
+                    if not move_map:
+                        continue
+                    src = list(move_map.keys())[0]
+                    dst = move_map[src]
                     # Mirror summaries move
-                    _mirror_pair_files(pairs, op="move")
-                    moved.extend(move_files(pairs))
+                    _mirror_move_file(src, dst, op="move")
+                    # Mirror tests move
+                    _mirror_tests_move_file(src, dst, step_plan=step)
+                    moved.append(move_file(src, dst))
                     # Mark both source and destination modules for refresh
-                    for src_p, dst_p in pairs:
-                        if _is_py_file_under_src(src_p):
-                            try:
-                                rel = Path(src_p).resolve().relative_to(self.src_dir)
-                                modules_to_refresh.add(rel.parent)
-                            except Exception:
-                                pass
-                        if _is_py_file_under_src(dst_p):
-                            try:
-                                rel = Path(dst_p).resolve().relative_to(self.src_dir)
-                                modules_to_refresh.add(rel.parent)
-                            except Exception:
-                                pass
-                elif step_type == "Copy files":
+                    if _is_py_file_under_src(src):
+                        try:
+                            rel = Path(src).resolve().relative_to(self.src_dir)
+                            modules_to_refresh.add(rel.parent)
+                        except Exception:
+                            pass
+                    if _is_py_file_under_src(dst):
+                        try:
+                            rel = Path(dst).resolve().relative_to(self.src_dir)
+                            modules_to_refresh.add(rel.parent)
+                        except Exception:
+                            pass
+                elif step_type == "Copy file":
                     cm_result = CopyMappingCrew().crew().kickoff(inputs={
-                        "input": {"artifacts": artifacts},
+                        "input": {"input_path": path_str},
                     })
                     copy_map = load_json_object(cm_result, COPY_MAP_SCHEMA)
-                    pairs = []
-                    if isinstance(copy_map, dict) and copy_map:
-                        pairs = [(resolve_path(k), resolve_path(v)) for k, v in copy_map.items() if k and v]
+                    if not copy_map:
+                        continue
+                    src = list(copy_map.keys())[0]
+                    dst = copy_map[src]
                     # Mirror summaries copy
-                    _mirror_pair_files(pairs, op="copy")
-                    copied.extend(copy_files(pairs))
+                    _mirror_move_file(src, dst, op="copy")
+                    # Mirror tests copy
+                    _mirror_tests_move_file(src, dst, step_plan=step)
+                    copied.append(copy_file(src, dst))
                     # Mark destination modules for refresh
-                    for _src_p, dst_p in pairs:
-                        if _is_py_file_under_src(dst_p):
-                            try:
-                                rel = Path(dst_p).resolve().relative_to(self.src_dir)
-                                modules_to_refresh.add(rel.parent)
-                            except Exception:
-                                pass
+                    if _is_py_file_under_src(dst):
+                        try:
+                            rel = Path(dst).resolve().relative_to(self.src_dir)
+                            modules_to_refresh.add(rel.parent)
+                        except Exception:
+                            pass
                 elif step_type == "Modify code":
                     # Choose diff-based development crew by points (1=junior, 2=senior, 3=lead)
                     points = int(step.get("points", 1) or 1)
                     if points <= 1:
                         dev_crew = JuniorDevelopmentDiffCrew()
+                        test_planner_crew = JuniorTestsPlanningCrew()
+                        test_implementer_crew = JuniorTestsImplementationCrew()
                     elif points == 2:
                         dev_crew = SeniorDevelopmentDiffCrew()
+                        test_planner_crew = SeniorTestsPlanningCrew()
+                        test_implementer_crew = SeniorTestsImplementationCrew()
                     else:
                         dev_crew = LeadDevelopmentDiffCrew()
+                        test_planner_crew = LeadTestsPlanningCrew()
+                        test_implementer_crew = LeadTestsImplementationCrew()
 
                     # Build inputs: map repo-relative path -> current file content
                     file_code: Dict[str, str] = {}
-                    for abs_path in artifacts:
-                        try:
+                    try:
+                        if path_str:
+                            abs_path = resolve_path(path_str)
                             path = Path(abs_path).resolve()
                             content = path.read_text(encoding="utf-8")
                             file_code[str(path.relative_to(self.src_dir))] = content
-                        except Exception:
-                            continue
+                    except Exception:
+                        content = ""
 
                     dev_result = dev_crew.crew().kickoff(inputs={
                         "instructions": step,
                         "file_code": file_code,
+                        "src_dir": str(self.src_dir),
                     })
 
                     # Parse diffs and integrate like bug resolution flow
-                    file_changes = load_json_output(dev_result, GENERATE_DIFFS_SCHEMA, 0)
+                    file_changes = load_json_output(dev_result, GENERATE_DIFFS_SCHEMA)
                     modifications.extend(file_changes)
+
+                    # Step 2: update test file
+                    if len(test_inputs_payload) > 0 and self._should_test_be_modified():
+                        # Build inputs for the crew
+                        inputs_payload = {**test_inputs_payload, **{
+                            "src_dir": str(self.src_dir),
+                            "action_plan": step.get("step"),
+                            "modified_files": file_changes,
+                        }}
+                        crew_result = test_planner_crew.crew().kickoff(inputs=inputs_payload)
+                        tests_plan = load_json_output(crew_result, TEST_PLAN_SCHEMA)
+                        # Aggregate planned tests by original source file (src_file)
+                        for test_item in tests_plan:
+                            try:
+                                src_file = (test_item or {}).get("src_file")
+                            except AttributeError:
+                                continue
+                            if not src_file:
+                                continue
+
+                            if src_file not in generated_tests_code:
+                                generated_tests_code[src_file] = {'code': [], 'test_plan': []}
+                            generated_tests_code[src_file]['test_plan'].append(test_item)
+
+                        # Implement tests code (return only code snippets, no paths)
+                        impl_inputs = {
+                            "framework": self.test_framework or "",
+                            "test_context": self.test_description or "",
+                            "examples": "\n\n".join(getattr(self, "test_examples", []) or []),
+                            "test_plan": tests_plan,
+                            "src_code": content,
+                            "file_changes": file_changes,
+                        }
+                        impl_result = test_implementer_crew.crew().kickoff(inputs=impl_inputs)
+                        impl_code_list = load_json_output(impl_result, IMPLEMENT_TESTS_SCHEMA)
+                        for item in impl_code_list or []:
+                            try:
+                                code_str = (item or {}).get("code")
+                            except AttributeError:
+                                continue
+                            if code_str:
+                                generated_tests_code[src_file]['code'].append(code_str)
+
                 else:
                     errors.append({
                         "step": step.get("step"),
@@ -854,10 +1027,93 @@ class IterateFlow(Flow):
                         modules_to_refresh.add(Path(path).parent)
                     except Exception:
                         pass
-                    self._regenerate_single_file_summary(path, file_result)
+                    # self._regenerate_single_file_summary(path, file_result)  # TODO: uncomment
             except Exception:
                 # Best-effort; do not fail on summary regeneration issues
                 pass
+
+        # --- Integrate generated unit tests into mirrored test files ---
+        def _map_src_path_to_test_path(src_path: str, test_plan: List[dict]) -> Path | None:
+            """
+            Given a repo-relative source path (under src_dir), return a tuple of
+            (chosen_test_root, repo-relative test file path under that root) using
+            a mirror strategy: tests/<same_dir>/test_<module>.py
+            Prefer an existing file if found.
+            """
+            try:
+                src_path = Path(src_path).relative_to(self.src_dir)
+                test_path_dir = src_path.parent
+                test_file_name = f"test_{src_path.stem}.py"
+                for test_dir in self.test_dirs:
+                    candidate_path = test_dir / test_path_dir / test_file_name
+                    if candidate_path.exists():
+                        return candidate_path
+            except Exception:
+                pass
+            return _get_test_path(src_path, test_plan)
+
+        def _get_test_path(src_file: str, test_plan: List[dict]) -> Path | None:
+            test_file = self._select_relevant_test_file(
+                src_file=src_file,
+                action_step_detail=test_plan,
+                test_file_paths=self.test_file_paths,
+            )
+            if Path(test_file).exists():
+                return Path(test_file)
+            return None
+
+        def _collect_nearby_fixtures(test_file: Path) -> str:
+            """
+            Collect fixture definitions from closest conftest.py upwards to test_root.
+            """
+            current = test_file
+            walked = set()
+            collected: list[str] = []
+            while True:
+                try:
+                    if current in walked:
+                        break
+                    walked.add(current)
+                    conf = (current / "conftest.py").resolve()
+                    if conf.exists() and conf.is_file():
+                        try:
+                            collected.append(conf.read_text(encoding="utf-8"))
+                        except Exception:
+                            pass
+                    if current in self.test_dirs:
+                        break
+                    current = current.parent
+                except Exception:
+                    break
+            return "\n\n".join(collected)
+
+        if generated_tests_code:
+            for src_rel, snippets in generated_tests_code.items():
+                if 'code' not in snippets or not snippets['code']:
+                    continue
+                if 'test_plan' not in snippets or not snippets['test_plan']:
+                    continue
+                # Determine test file location by mirroring src path
+                test_file = _map_src_path_to_test_path(src_rel, snippets['test_plan'])
+                if not test_file:
+                    continue
+                try:
+                    original_test_code = test_file.read_text(encoding="utf-8")
+                except Exception:
+                    continue
+                # Collect nearest fixtures
+                fixtures_text = _collect_nearby_fixtures(test_file)
+
+                # Integrate using advanced tests integrator crew
+                ti_result = TestsIntegratorCrew().crew().kickoff(inputs={
+                    "framework": self.test_framework or "",
+                    "original_test_code": original_test_code,
+                    "generated_tests_code": snippets,
+                    "available_fixtures": fixtures_text,
+                })
+                final_test_code = sanitize_generated_content(str(ti_result.tasks_output[0]))
+                # Write via deterministic writer relative to test root
+                write_file_map({test_file.relative_to(self.repo_dir): final_test_code}, str(self.repo_dir))
 
         # Regenerate module summaries (_module.md) for affected modules
         if self.summaries_dir and modules_to_refresh:
@@ -892,7 +1148,6 @@ class IterateFlow(Flow):
             "renamed_files": renamed,
             "moved_files": moved,
             "copied_files": copied,
-            "code_modification_todos": code_todos,
             "modified_files": modifications,
             "errors": errors,
         }

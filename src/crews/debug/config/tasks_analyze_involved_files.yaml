@@ -20,7 +20,7 @@ analyze_involved_files:
 
   expected_output: >
     Output JSON format:
-    {'root': [{
+    {"root": [{
       "file_path": [str|null], "affected_callable": [str|null], "error": [str], "traceback": [str],
       "involved_files": [str], "id": int
     }]}

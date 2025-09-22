@@ -1,0 +1,28 @@
+select_relevant_tests:
+  description: >
+
+    Original source code file: {src_file}
+
+    Action plan step detail:
+    """
+    {action_step_detail}
+    """
+
+    Existing test file paths: {test_file_paths}
+
+    Goal:
+    Return the single test file path that is most likely to need an update due
+    to the described code changes.
+
+    Requirements:
+      - The returned path MUST be one of the provided test file paths or an existing directory.
+      - Pick the highest-relevance candidate only.
+      - Provide an absolute path.
+
+    IMPORTANT: If the input file is a path to a directory, return a path to a directory.
+
+  expected_output: >
+    Output JSON format:
+    {"root": str}
+    Output only compact JSON, no surrounding prose.
+  agent: relevance_analyst

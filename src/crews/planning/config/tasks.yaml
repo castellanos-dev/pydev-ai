@@ -16,6 +16,7 @@ select_relevant_files:
     Requirements:
       - Do not care about missing dependencies, just the project code relevant to the prompt.
       - In case of doubt, include the file.
+      - Do NOT include __init__.py files.
 
     IMPORTANT: The output file paths must be absolute. The project source code is in the folder {src_dir}.
 
@@ -81,35 +82,27 @@ produce_action_plan:
     Task:
     Produce an actionable, detailed step-by-step plan to fulfill the user's
     request. Use only the provided context (summaries and code excerpts when
-    present). Do not suggest implementing code; instead, enumerate the tasks
-    needed to implement the solution, with ordering, dependencies, and expected
-    artifacts for each step.
+    present).
 
     Requirements:
       - The plan MUST be a recipe of steps, not code.
-      - Include references to files by path when relevant.
       - Keep steps small, testable, and logically sequenced.
       - Do NOT define file references that are not coherent with the project structure.
+      - Only refer to the project source code, do NOT refer on how the project will be used.
       - Only empty files can be created. The content should be added later.
 
-    Each step will be executed independently, so the plan should be a sequence of steps
-    that can be executed in any order. Each step should be properly detailed to be executed
-    independently.
-
-    Plan steps should only refer to code modifications that are necessary to fulfill
-    the user's request. Do NOT include steps related to git, testing, documentation, etc.
+    Each step should be properly detailed to be executed independently. The plan
+    will be carried out in order.
 
     ALLOWED STEP TYPES:
       - Modify code
-      - Create new files
-      - Delete files
-      - Rename files
-      - Move files
-      - Copy files
-      - Create new directories
-      - Delete directories
-
-    IMPORTANT: The output file paths must be absolute. The project source code is in the folder {src_dir}.
+      - Create new file
+      - Delete file
+      - Rename file
+      - Move file
+      - Copy file
+      - Create new directory
+      - Delete directory
 
     Details:
       - points: Deeply-reasoned implementation effort of the classes and functions:
@@ -117,10 +110,15 @@ produce_action_plan:
           * 2 for tasks that require a senior developer.
           * 3 for tasks that require a lead developer.
 
+    IMPORTANT:
+      - The output file paths must be absolute. The project source code is in the folder {src_dir}.
+      - Do NOT include steps related to git, testing, documentation, etc.
+      - KEEP A REDUCED NUMBER OF STEPS.
+
   expected_output: >-
     Output JSON:
       [
-        {"step": int, "title": str, "description": str, "artifacts": [str], "type": str, points: int}
+        {"step": int, "title": str, "description": str, "path": str, "type": str, points: int}
       ]
     Return only valid JSON. Do not add prose outside JSON. Use ENGLISH.
   agent: planner

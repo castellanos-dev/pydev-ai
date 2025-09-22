@@ -9,7 +9,7 @@ ACTION_PLAN_SCHEMA = '''
     "step": int,
     "title": str,
     "description": str,
-    "artifacts": [str],
+    "path": str,
     "type": str,
     "points": int
   }
@@ -21,7 +21,7 @@ class ActionStep(BaseModel):
     step: int
     title: str
     description: str
-    artifacts: List[str] = Field(default_factory=list)
+    path: str
     type: str
     points: int = Field(default=1)
 

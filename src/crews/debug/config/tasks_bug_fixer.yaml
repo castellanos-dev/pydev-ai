@@ -33,7 +33,7 @@ implement_bug_fixes:
   expected_output: >
     Output JSON format:
     {
-      'root': [{
+      "root": [{
         "path": str,
         "content_diff": str
       }]

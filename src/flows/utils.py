@@ -147,8 +147,8 @@ def load_json_output(result: TaskOutput, schema: str, task: int = -1) -> List[Di
     Parse the JSON output from a given schema.
     """
     if result.tasks_output[task].json_dict is not None:
-        if 'root' in result.tasks_output[task].json_dict:
-            return result.tasks_output[task].json_dict['root']
+        if "root" in result.tasks_output[task].json_dict:
+            return result.tasks_output[task].json_dict["root"]
         else:
             return result.tasks_output[task].json_dict
     text = str(result.tasks_output[task])
@@ -160,8 +160,8 @@ def load_json_output(result: TaskOutput, schema: str, task: int = -1) -> List[Di
     except Exception:
         fixed = _fix_json_text(text, schema)
         obj = json.loads(fixed)
-    if 'root' in obj:
-        return obj['root']
+    if "root" in obj:
+        return obj["root"]
     return obj
 
 
@@ -213,6 +213,12 @@ def process_path(base_path: str, path: str, sub_dir: str = "") -> Path:
     """
     Process a path to ensure it is a valid path.
     """
+
+    # If the provided path is absolute, return it directly as a resolved Path
+    p = Path(path)
+    if p.is_absolute():
+        return p.resolve()
+
     if sub_dir and path.startswith(f'{sub_dir}/'):
         path = path[len(sub_dir) + 1:]
     return ((Path(base_path) / sub_dir / path) if sub_dir else Path(base_path) / path).resolve()

@@ -1,0 +1,54 @@
+implement_tests:
+  description: >
+
+    Source code:
+    ```
+    {src_code}
+    ```
+
+    File changes:
+    ```
+    {file_changes}
+    ```
+
+    =================================
+
+    Test framework: {framework}
+    Test context: {test_context}
+
+    Test structure examples (skeletons, from existing repo tests):
+    ```
+    {examples}
+    ```
+
+    Planned tests:
+    ```
+    {test_plan}
+    ```
+
+    =================================
+
+    Goal:
+    Generate the pytest test code for the planned tests. Return test function
+    code blocks ready to be integrated in the existing test files.
+
+    Requirements:
+      - For each test, produce one concise string
+        containing imports and the corresponding test function.
+      - Keep tests minimal and deterministic. Prefer parametrization when
+        it simplifies cases.
+      - Avoid duplication.
+      - Use the reference examples ONLY as structural guidance (fixtures used, parametrization patterns, assertion styles, common helpers). Do not copy irrelevant details.
+      - Do not include "..." in generated tests. The "..." appears only in the examples to indicate omitted parts.
+
+    IMPORTANT: Output ONLY the code for new unit tests.
+
+  expected_output: >
+    Output JSON format:
+    {"root": [
+      {
+        "code": str
+      }
+    ]}
+    Use compact language. Do not add prose outside JSON.
+  agent: test_implementer

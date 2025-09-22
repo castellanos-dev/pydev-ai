@@ -35,7 +35,7 @@ analyze_test_failures:
 
   expected_output: >
     Output JSON format:
-    {'root':
+    {"root":
       [{
         "file_paths": [str],
         "affected_callables": [str],

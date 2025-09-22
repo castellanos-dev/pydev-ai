@@ -43,7 +43,7 @@ generate_tests:
 
   expected_output: >
     Output JSON format:
-    {'root': [{
+    {"root": [{
       "path": str,
       "content": str
     }]}

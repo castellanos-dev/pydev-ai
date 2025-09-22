@@ -12,6 +12,8 @@ integrate_fixes:
       - Preserve unrelated code and imports; only modify what's needed to implement fixes.
       - If multiple fixes touch the same region, reconcile them sensibly to keep code valid.
 
+    IMPORTANT: Keep the imports and dependencies coherent with the final content of the file.
+
     You will receive these variables:
       original_code:
       ```{original_code}```

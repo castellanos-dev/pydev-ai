@@ -1,8 +1,12 @@
 produce_rename_map:
   description: >-
+    input path: {input_path}
+
     You are given a JSON description containing rename specifications.
     Your job is to return a deterministic JSON object mapping each original
-    file path to its new path: {"old_path": "new_path"} per entry.
+    file path to its new path: {"old_path": "new_path"} per entry. The old path
+    is the input path. The new path is the input path with the old name replaced
+    with the new name.
 
     Normalize the result into a single flat JSON object where keys are old paths
     and values are new paths. Do not include duplicates; the last occurrence wins.

@@ -6,7 +6,8 @@ TESTS_CONF_SCHEMA = '''
 {
   "framework": "pytest|unittest|django|script|null",
   "command": str,
-  "description": str
+  "description": str,
+  "examples": [str]
 }
 '''
 
@@ -15,9 +16,11 @@ class TestsConf(BaseModel):
     framework: str
     command: str
     description: str
+    examples: list[str] = []
 
 
 class TestsConfOutput(BaseModel):
     framework: str
     command: str
     description: str
+    examples: list[str] = []

@@ -28,21 +28,12 @@ class JuniorDevelopmentDiffCrew:
         self.llm_reasoning = llms()["reasoning"]
 
         self.llm_developer = llms()["light"]
-        self.llm_reviewer = llms()["light"]
 
     @agent
     def code_diff_generator(self) -> Agent:
         return Agent(
             config=self.agents_config["code_diff_generator"],
             llm=self.llm_developer,
-            verbose=True,
-        )
-
-    @agent
-    def reviewer(self) -> Agent:
-        return Agent(
-            config=self.agents_config["reviewer"],
-            llm=self.llm_reviewer,
             verbose=True,
         )
 
@@ -53,19 +44,12 @@ class JuniorDevelopmentDiffCrew:
             output_json=GenerateDiffsOutput,
         )
 
-    @task
-    def review_diffs(self) -> Task:
-        return Task(config=self.tasks_config["review_diffs"],
-            output_json=GenerateDiffsOutput,
-        )
-
     @crew
     def crew(self) -> Crew:
         return Crew(
             agents=self.agents,
             tasks=[
                 self.generate_diffs(),
-                self.review_diffs(),
             ],
             process=Process.sequential,
             output_log_file=True,
@@ -77,11 +61,9 @@ class SeniorDevelopmentDiffCrew(JuniorDevelopmentDiffCrew):
     def __init__(self):
         super().__init__()
         self.llm_developer = llms()["medium"]
-        self.llm_reviewer = llms()["light"]
 
 
 class LeadDevelopmentDiffCrew(JuniorDevelopmentDiffCrew):
     def __init__(self):
         super().__init__()
         self.llm_developer = llms()["reasoning"]
-        self.llm_reviewer = llms()["medium"]

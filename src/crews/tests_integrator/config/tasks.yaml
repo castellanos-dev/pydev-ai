@@ -1,0 +1,28 @@
+integrate_tests:
+  description: >
+
+    framework:
+    ```{framework}```
+    original_test_code:
+    ```{original_test_code}```
+    generated_tests_code:
+    ```{generated_tests_code}```
+    available_fixtures:
+    ```{available_fixtures}```
+    =====================================
+
+    Merge newly generated unit tests into the target test file, preserving and reusing
+    existing structure, classes, and fixtures. Ensure imports and style are consistent.
+
+    Rules:
+      - Output MUST be the FULL final content of the test file, not a diff.
+      - If suitable, insert new tests into existing test classes; otherwise add new functions/classes.
+      - Reuse fixtures if names match; do not duplicate identical fixtures.
+      - Avoid redefining imports that already exist; consolidate imports cleanly.
+      - Ensure idempotent reruns (no duplicate test functions on repeated merges).
+
+  expected_output: >
+    The final content of the test file. No prose outside the code.
+  agent: tests_integrator
+
+

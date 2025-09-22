@@ -205,7 +205,7 @@ task_assignment:
 
   expected_output: >
     Output JSON format:
-    {'root': [{
+    {"root": [{
       "developer": int,
       "set_of_files": {
         "file_path": {

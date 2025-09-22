@@ -17,7 +17,7 @@ generate_code:
       4. Include appropriate error handling
   expected_output: >
     Output JSON format:
-    {'root': [{
+    {"root": [{
       "path": str,
       "content": str
     }]}
@@ -99,7 +99,7 @@ debug_if_needed:
       - Each output fix should map a input fix.
   expected_output: >
     Output JSON format:
-    {'root': [{
+    {"root": [{
       "file_path": str,
       "affected_callable": str,
       "fix": str

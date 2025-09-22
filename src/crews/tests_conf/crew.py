@@ -19,13 +19,13 @@ class TestsConfCrew:
     tasks: List[Task]
 
     def __init__(self):
-        self.llm_light = llms()["light"]
+        self.llm_reasoning = llms()["reasoning"]
 
     @agent
     def test_analyst(self) -> Agent:
         return Agent(
             config=self.agents_config["test_analyst"],
-            llm=self.llm_light,
+            llm=self.llm_reasoning,
             verbose=True,
         )
 

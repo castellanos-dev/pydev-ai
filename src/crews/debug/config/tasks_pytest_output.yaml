@@ -34,7 +34,7 @@ group_failures_by_root_cause:
 
   expected_output: >
     Output JSON format:
-    {'root': [{
+    {"root": [{
       "file_path": [str|null], "affected_callable": [str|null], "error": [str], "traceback": [str]
     }]}
     Use compact language. Do not add prose outside JSON.

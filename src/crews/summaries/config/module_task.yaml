@@ -2,6 +2,8 @@ summarize_modules:
   description: >-
     invidual_summaries:
     ```{invidual_summaries}```
+    Summaries directory:
+    `{summaries_dir}`
 
     Task:
     Generate one high-level Markdown overview per package/folder from the information of
@@ -77,6 +79,7 @@ summarize_modules:
       - For a folder like "utils/validators/", output path should be
         "utils/validators/_module.md" under the same root used for file summaries.
       - For the top-level module, output path must be "_module.md".
+      - The path must be absolute under the summaries directory.
 
   expected_output: >-
     Output JSON:

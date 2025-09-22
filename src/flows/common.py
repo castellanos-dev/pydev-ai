@@ -8,7 +8,7 @@ from ..crews.summaries.output_format.summaries import SUMMARIES_SCHEMA
 from .utils import load_json_output, sanitize_generated_content
 
 
-def generate_file_summaries_from_chunk(chunk: List[Dict[str, str]]) -> Dict[str, str]:
+def generate_file_summaries_from_chunk(chunk: List[Dict[str, str]], summaries_dir: str) -> Dict[str, str]:
     """
     Generate per-file summaries for a given chunk of code items.
 
@@ -21,6 +21,7 @@ def generate_file_summaries_from_chunk(chunk: List[Dict[str, str]]) -> Dict[str,
     for item in chunk:
         result = FileSummariesCrew().crew().kickoff(inputs={
             "code_chunk": item,
+            "summaries_dir": summaries_dir,
         })
         file_summaries = load_json_output(result, SUMMARIES_SCHEMA, 0)
 
@@ -30,7 +31,7 @@ def generate_file_summaries_from_chunk(chunk: List[Dict[str, str]]) -> Dict[str,
     return summaries
 
 
-def generate_module_summaries_from_file_summaries(file_summaries: Dict[str, str]) -> Dict[str, str]:
+def generate_module_summaries_from_file_summaries(file_summaries: Dict[str, str], summaries_dir: str) -> Dict[str, str]:
     """
     Generate per-module summaries using ONLY the per-file summaries as context.
 
@@ -40,6 +41,7 @@ def generate_module_summaries_from_file_summaries(file_summaries: Dict[str, str]
 
     result = ModuleSummariesCrew().crew().kickoff(inputs={
         "invidual_summaries": file_summaries,
+        "summaries_dir": summaries_dir,
     })
     module_summaries = load_json_output(result, SUMMARIES_SCHEMA, 0)
 

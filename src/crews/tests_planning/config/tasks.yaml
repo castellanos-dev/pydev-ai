@@ -1,0 +1,52 @@
+plan_tests:
+  description: >
+
+    Project test setup:
+    framework: {framework}
+    description: {description}
+    source code directory: {src_dir}
+
+    Action plan steps:
+    ```
+    {action_plan}
+    ```
+
+    Code changes:
+    ```
+    {modified_files}
+    ```
+
+    Goal:
+    Propose a list of unit test descriptions that should be
+    implemented to validate the new or modified functionality introduced by the
+    action plan. Prefer unit tests over integration tests unless strictly
+    necessary.
+
+    Requirements:
+      - Each item must include: title, description (functional behavior to
+        verify), targets (affected modules/files or callables), src_file (the
+        source .py file under test), reason (why this test is needed), test_type
+        ("unit" | "integration").
+      - Focus on behavior and acceptance criteria, not test code.
+      - Prioritize tests for public APIs, critical paths, and edge cases.
+
+    IMPORTANT:
+      - Keep the list as concise and minimal as possible while still covering the
+        most important functionality. Output list can be empty.
+      - KEEP A REDUCED NUMBER OF TESTS. Output list can be empty.
+      - The src_file must be an absolute path under the source code directory.
+
+  expected_output: >
+    Output JSON format:
+    {"root": [
+      {
+        "title": str,
+        "description": str,
+        "targets": [str],
+        "src_file": str,
+        "reason": str,
+        "test_type": "unit|integration"
+      }
+    ]}
+    Use compact language. Do not add prose outside JSON.
+  agent: test_planner
