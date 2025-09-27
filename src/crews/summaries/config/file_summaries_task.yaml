@@ -2,71 +2,12 @@ summarize_chunk:
   description: >-
     code_chunk:
     ```{code_chunk}```
-    Summaries directory:
-    `{summaries_dir}`
+
+    ------------------------------------------------------------
 
     Task:
-    Based on the provided chunked file contents, generate
-    one Markdown summary per source file (exclude `__init__.py`).
-    Use the following English template strictly (except None entries):
-
-    ------------------------------------------------------------
-
-    ## Location
-
-    `project.module.file`
-
-
-    ## Purpose
-
-    [Clear and concise description of the file's primary purpose]
-
-
-    ## Dependencies
-
-    - **Internal**:
-      - `module_1.py` - [Why it is used]
-      - `module_2.py` - [Why it is used]
-    - **External**:
-      - `external_library` - [Version if known, purpose]
-
-
-    ## Main structure
-
-
-    ### Classes
-
-
-    #### `ClassName`
-
-      - **Responsibility**: [What it is responsible for]
-      - **Important attributes**:
-        - `attribute_1`: [Type, description]
-      - **Primary methods**:
-        - `method_1(args)`: [Description, parameters, return]
-
-
-    ### Functions
-
-    #### `function_name(args)`
-
-      - **Purpose**: [Brief description]
-      - **Parameters**:
-        - `param_1`: [Type, description]
-      - **Returns**: [Type, description]
-
-    ### Global variables/constants
-
-      - `IMPORTANT_VARIABLE`: [Value if simple, purpose]
-
-    ## Usage examples
-
-    ```python
-    # Typical usage example
-    result = example_function(param)
-    ```
-
-    ------------------------------------------------------------
+    Based on the provided chunked file contents, generate one JSON object per
+    source file (exclude `__init__.py`). Use ONLY the provided JSON structure.
 
     Requirements:
       - Prioritize: purpose, responsibilities, inputs/outputs, public APIs
@@ -75,16 +16,40 @@ summarize_chunk:
       - Maintain semantic focus and keep it compact; do not repeat large code
         blocks (only minimal code in examples when helpful).
 
-    IMPORTANT:
-      - Do not add __init__.py to the path. Use the same path as the
-      - Use the same path as the input file path with .md extension.
-      - The path must be absolute under the summaries directory.
-
   expected_output: >-
     Output JSON:
-      [{
-        "path": str,
-        "content": str
-      }]
+      {
+        "location": "import route of the file (e.g. 'project.module.file')",
+        "purpose": "Detailed but concise description of the file's primary purpose",
+        "dependencies": {
+          "internal": [{"path": "module_1.py", "reason": "Why it is used"}],
+          "external": [{"name": "external_library", "purpose": "What for"}]
+        },
+        "structure": {
+          "classes": [{
+            "name": "ClassName",
+            "responsibility": "What it is responsible for",
+            "attributes": [{"name": "attribute_1", "type": "Type"}],
+            "methods": [{
+              "name": "method_1",
+              "signature": "method_1(args)",
+              "description": "Detailed but concise description",
+              "parameters": [{"name": "param_1", "type": "Type"}],
+              "returns": {"type": "Type", "description": "Short Description"},
+              "raises": [{"exception": "Exception", "description": "Short Description"}]
+            }]
+          }],
+          "functions": [{
+            "name": "function_name",
+            "signature": "function_name(args)",
+            "purpose": "Detailed but concise description",
+            "parameters": [{"name": "param_1", "type": "Type"}],
+            "returns": {"type": "Type", "description": "Short Description"},
+            "raises": [{"exception": "Exception", "description": "Short Description"}]
+          }],
+          "globals": [{"name": "IMPORTANT_VARIABLE", "value": "Value if simple", "purpose": "Short Purpose"}]
+        },
+        "examples": [{"language": "python", "code": "# Typical usage example\nresult = example_function(param)"}]
+      }
     Return only valid JSON. Do not add prose outside JSON.
   agent: summarizer

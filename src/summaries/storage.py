@@ -13,8 +13,8 @@ def digests_root(repo_root: str | pathlib.Path) -> pathlib.Path:
 def write_digest(repo_root: str | pathlib.Path, name: str, content: str) -> str:
     root = digests_root(repo_root)
     root.mkdir(parents=True, exist_ok=True)
-    # Preserve nested directories under digests; always write .md extension
-    p = root / f"{name}.md"
+    # Preserve nested directories under digests; always write .yaml extension
+    p = root / f"{name}.yaml"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
     return str(p)
@@ -24,7 +24,7 @@ def list_digests(repo_root: str | pathlib.Path) -> List[str]:
     root = digests_root(repo_root)
     if not root.exists():
         return []
-    return [str(p) for p in root.rglob("*.md")]
+    return [str(p) for p in root.rglob("*.yaml")]
 
 
 def read_all_digests(repo_root: str | pathlib.Path) -> str:

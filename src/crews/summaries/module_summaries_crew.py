@@ -2,7 +2,7 @@ from __future__ import annotations
 from crewai import Crew, Process, Task
 from crewai.project import crew, task
 from .crew import BaseSummariesCrew
-from .output_format.summaries import SummariesOutput
+from .output_format.summaries import ModuleSummariesOutput
 
 
 class ModuleSummariesCrew(BaseSummariesCrew):
@@ -17,7 +17,7 @@ class ModuleSummariesCrew(BaseSummariesCrew):
     def summarize_modules(self) -> Task:
         return Task(
             config=self.tasks_config["summarize_modules"],
-            output_json=SummariesOutput,
+            output_json=ModuleSummariesOutput,
         )
 
     @crew

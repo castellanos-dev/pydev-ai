@@ -32,7 +32,6 @@ from ..crews.debug import (
 from ..crews.design.output_format.task_assignment import TASK_ASSIGNMENT_SCHEMA
 from ..crews.development.output_format.generate_code import GENERATE_CODE_SCHEMA
 from ..crews.development.output_format.debug_if_needed import DEBUG_IF_NEEDED_SCHEMA
-from ..crews.summaries.output_format.summaries import SUMMARIES_SCHEMA
 from ..crews.test_development.output_format.generate_tests import GENERATE_TESTS_SCHEMA
 from ..crews.debug.output_format.pytest_output import PYTEST_OUTPUT_ANALYSIS_SCHEMA
 from ..crews.debug.output_format.analyze_involved_files import INVOLVED_FILES_SCHEMA
@@ -177,7 +176,12 @@ class NewProjectFlow(Flow):
     def write_generated_code(self, code_result: Dict[str, Any]) -> Dict[str, Any]:
         """Deterministically write the codebase."""
         code_logs = write_file_map(code_result["code"], self.out_dir, 'src')  # TODO: review the logs
-        summaries_logs = write_file_map(code_result["summaries"], self.out_dir, 'summaries')  # TODO: review the logs
+        # Ensure .pydev/summaries exists at repo root
+        summaries_logs = write_file_map(
+            code_result["summaries"],
+            self.out_dir,
+            '.pydev/summaries'
+        )  # TODO: review the logs
         return code_result["project_design"]
 
     @listen(write_generated_code)

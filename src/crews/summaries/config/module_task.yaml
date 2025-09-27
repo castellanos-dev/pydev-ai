@@ -2,72 +2,12 @@ summarize_modules:
   description: >-
     invidual_summaries:
     ```{invidual_summaries}```
-    Summaries directory:
-    `{summaries_dir}`
+
+    ------------------------------------------------------------
 
     Task:
-    Generate one high-level Markdown overview per package/folder from the information of
-    the individual summaries provided. Use ONLY the following English template strictly
-    (replace placeholders and omit sections that are None):
-
-    ------------------------------------------------------------
-
-    # Module: [Package/Folder Name]
-
-
-    ## Location
-
-    `project.module`
-
-
-    ## Module purpose
-
-    [Describe the module's purpose and responsibilities]
-
-
-    ## Module structure
-
-    folder/
-
-    │
-
-    ├── subfolder_1/ # [Brief description]
-    │ ├── file_1.py # [Purpose]
-    │ └── file_2.py # [Purpose]
-    │
-    ├── subfolder_2/ # [Brief description]
-    │ └── file_3.py # [Purpose]
-    │
-
-    └── __init__.py # [Purpose]
-
-
-    ## Relationships with other modules
-
-      - **Dependencies**:
-        - `external_module` - [Reason/purpose of the dependency]
-      - **Dependents**:
-        - `module_that_uses_it` - [How it is used]
-
-
-    ## Main interfaces
-
-      - **Exported classes**:
-        - `MainClass` - [Short description]
-      - **Exported functions**:
-        - `public_function()` - [Short description]
-
-
-    ## Important workflows
-
-    [Describe key flows or processes implemented by this module]
-
-
-    ## Implementation notes
-
-    [Technical details relevant for development]
-
-    ------------------------------------------------------------
+    Generate one high-level JSON overview per package/folder from the information of
+    the individual summaries provided. Use ONLY the provided JSON structure.
 
     Guidance:
       - Infer packages/folders by grouping files by their top-level directories within the
@@ -75,17 +15,30 @@ summarize_modules:
       - Keep overviews concise, focusing on responsibilities, interfaces, and relationships.
       - Use English in all outputs.
 
-    Output path rules:
-      - For a folder like "utils/validators/", output path should be
-        "utils/validators/_module.md" under the same root used for file summaries.
-      - For the top-level module, output path must be "_module.md".
-      - The path must be absolute under the summaries directory.
-
   expected_output: >-
     Output JSON:
-      [{
-        "path": str,
-        "content": str
-      }]
+      {
+        "location": "import route of the module (e.g. 'project.module')",
+        "purpose": "Deatiled but concise description of the module's purpose and responsibilities",
+        "structure_tree": [
+            "folder/",
+            "├── subfolder_1/ # Brief description",
+            "│   ├── file_1.py # Purpose",
+            "│   └── file_2.py # Purpose",
+            "├── subfolder_2/ # Brief description",
+            "│   └── file_3.py # Purpose",
+            "└── __init__.py # Purpose"
+        ],
+        "dependencies": {
+          "internal": [{"path": "module_1.py", "reason": "Why it is used"}],
+          "external": [{"name": "external_library", "purpose": "What for"}]
+        },
+        "interfaces": {
+          "classes": [{"name": "project.module.MainClass", "description": "Short description", "methods": [{"name": "method_name", "signature": "method_name(arg: type) -> return_type", "description": "Short description"}]}],
+          "functions": [{"name": "project.module.public_function", "signature": "public_function()", "description": "Short description"}]
+        },
+        "workflows": ["Describe key flows or processes implemented by this module"],
+        "notes": "Technical details relevant for development"
+      }
     Return only valid JSON. Do not add prose outside JSON.
   agent: module_summarizer

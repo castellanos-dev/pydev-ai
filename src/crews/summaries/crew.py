@@ -36,11 +36,3 @@ class BaseSummariesCrew:
             llm=self.llm_light,
             verbose=True,
         )
-
-    @agent
-    def locator(self) -> Agent:
-        return Agent(
-            config=self.agents_config["locator"],
-            llm=self.llm_light,
-            verbose=True,
-        )

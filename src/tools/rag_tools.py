@@ -12,7 +12,7 @@ def _iter_repo_files(root: str | Path, globs: List[str]) -> Iterable[Path]:
     seen: set[Path] = set()
     for g in globs:
         for p in root_path.glob(g):
-            if p.is_file() and p.suffix.lower() in {".py", ".md", ".txt"}:
+            if p.is_file() and p.suffix.lower() in {".py", ".md", ".yaml", ".yml", ".txt", ".rst"}:
                 if p not in seen:
                     seen.add(p)
                     yield p
@@ -21,7 +21,7 @@ def _iter_repo_files(root: str | Path, globs: List[str]) -> Iterable[Path]:
 class RAGIndexArgs(BaseModel):
     repo: str = Field(..., description="Repository root to index")
     glob: str = Field(
-        "**/*.py,**/*.md,**/*.txt", description="Comma-separated globs to include"
+        "**/*.py,**/*.md,**/*.yaml,**/*.yml,**/*.txt,**/*.rst", description="Comma-separated globs to include"
     )
 
 
@@ -39,7 +39,7 @@ class RAGIndexTool(BaseTool):
     )
     args_schema: Type[BaseModel] = RAGIndexArgs
 
-    def _run(self, repo: str, glob: str = "**/*.py,**/*.md,**/*.txt") -> str:
+    def _run(self, repo: str, glob: str = "**/*.py,**/*.md,**/*.yaml,**/*.yml,**/*.txt,**/*.rst") -> str:
         """
         Index files from a repository into the vector store.
 

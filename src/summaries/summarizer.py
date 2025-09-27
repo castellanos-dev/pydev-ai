@@ -21,12 +21,12 @@ def bootstrap_digest(repo: str) -> str:
 
 def write_summaries(repo: str, summaries: Dict[str, str]) -> List[str]:
     """
-    Persist a set of summaries as individual markdown files under the digests
+    Persist a set of summaries as individual YAML files under the digests
     directory. Keys are logical names (safe for filenames) and values are
-    markdown contents. Returns list of written paths.
+    YAML contents. Returns list of written paths.
     """
     written: List[str] = []
-    for name, md in summaries.items():
-        path = write_digest(repo, name, md)
+    for name, content in summaries.items():
+        path = write_digest(repo, name, content)
         written.append(path)
     return written

@@ -1,51 +1,37 @@
 from __future__ import annotations
-from typing import Dict, List
+from typing import Dict, Any
 
 from ..crews.summaries.file_summaries_crew import FileSummariesCrew
 from ..crews.summaries.module_summaries_crew import ModuleSummariesCrew
-from ..crews.summaries.output_format.summaries import SUMMARIES_SCHEMA
+from ..crews.summaries.output_format.summaries import MODULE_SUMMARIES_SCHEMA, FILE_SUMMARIES_SCHEMA
 
-from .utils import load_json_output, sanitize_generated_content
+from .utils import load_json_output
 
 
-def generate_file_summaries_from_chunk(chunk: List[Dict[str, str]], summaries_dir: str) -> Dict[str, str]:
+def generate_file_summaries_from_chunk(item: str) -> Dict[str, Dict[str, Any]]:
     """
     Generate per-file summaries for a given chunk of code items.
 
-    The input is a list of dicts with keys: {"path": str, "content": str}.
-    Returns a mapping of summary paths (relative to summaries root) to sanitized Markdown.
+    Returns a JSON object.
     """
 
-    summaries: Dict[str, str] = {}
-
-    for item in chunk:
-        result = FileSummariesCrew().crew().kickoff(inputs={
-            "code_chunk": item,
-            "summaries_dir": summaries_dir,
-        })
-        file_summaries = load_json_output(result, SUMMARIES_SCHEMA, 0)
-
-        for entry in file_summaries:
-            summaries[entry["path"]] = sanitize_generated_content(entry["content"])
-
-    return summaries
+    result = FileSummariesCrew().crew().kickoff(inputs={
+        "code_chunk": item,
+    })
+    return load_json_output(result, FILE_SUMMARIES_SCHEMA)
 
 
-def generate_module_summaries_from_file_summaries(file_summaries: Dict[str, str], summaries_dir: str) -> Dict[str, str]:
+def generate_module_summaries_from_file_summaries(file_summaries: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """
     Generate per-module summaries using ONLY the per-file summaries as context.
 
     The provided mapping should associate file identifiers (paths) with their
-    corresponding Markdown summaries. No real code is included.
+    corresponding JSON summaries (objects). No real code is included.
     """
 
     result = ModuleSummariesCrew().crew().kickoff(inputs={
         "invidual_summaries": file_summaries,
-        "summaries_dir": summaries_dir,
     })
-    module_summaries = load_json_output(result, SUMMARIES_SCHEMA, 0)
+    module_summaries = load_json_output(result, MODULE_SUMMARIES_SCHEMA)
 
-    summaries: Dict[str, str] = {}
-    for entry in module_summaries:
-        summaries[entry["path"]] = sanitize_generated_content(entry["content"])
-    return summaries
+    return module_summaries

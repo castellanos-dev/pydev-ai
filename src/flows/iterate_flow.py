@@ -8,9 +8,7 @@ from crewai.flow import Flow, start, listen
 from .utils import ensure_repo, load_json_output, load_json_list, load_json_object
 from ..crews.project_structure.crew import ProjectStructureCrew
 from ..crews.project_structure.output_format.project_structure import PROJECT_STRUCTURE_SCHEMA
-from ..crews.summaries.output_format.summaries_dir import SUMMARIES_DIR_SCHEMA
-from ..crews.summaries.summaries_dir_crew import SummariesDirCrew
-from .utils import write_file_map
+from .utils import to_yaml_file_map, write_file
 from .common import (
     generate_file_summaries_from_chunk,
     generate_module_summaries_from_file_summaries,
@@ -72,14 +70,14 @@ class IterateFlow(Flow):
     """
 
     def _process_file_summaries_chunk(self, chunk: List[Dict[str, str]]) -> Dict[str, str]:
-        return generate_file_summaries_from_chunk(chunk, str(self.summaries_dir))
+        return generate_file_summaries_from_chunk(chunk)
 
     def _process_module_summaries_from_file_summaries(self, file_summaries: Dict[str, str]) -> Dict[str, str]:
-        return generate_module_summaries_from_file_summaries(file_summaries, str(self.summaries_dir))
+        return generate_module_summaries_from_file_summaries(file_summaries)
 
     def _collect_module_file_summaries_from_py_paths(self, module_dir: Path, py_paths: List[Path]) -> Dict[str, str]:
         """
-        Build a mapping of repo-relative Python paths -> file summary (markdown content)
+        Build a mapping of repo-relative Python paths -> file summary (YAML content)
         for all files under the provided module directory, using existing per-file
         summaries located under self.summaries_dir.
         """
@@ -89,34 +87,34 @@ class IterateFlow(Flow):
         module_files = [p for p in py_paths if p.parent == module_dir]
         for py_file in module_files:
             rel_py = py_file.relative_to(self.src_dir)
-            md_file = (self.summaries_dir / rel_py).with_suffix(".md")
-            if not md_file.exists():
+            yaml_file = (self.summaries_dir / rel_py).with_suffix(".yaml")
+            if not yaml_file.exists():
                 continue
             try:
-                md_content = md_file.read_text(encoding="utf-8")
+                yaml_content = yaml_file.read_text(encoding="utf-8")
             except Exception:
                 continue
-            chunk[str(rel_py)] = md_content
+            chunk[str(rel_py)] = yaml_content
         return chunk
 
-    def _collect_module_file_summaries_from_md_dir(self, md_dir: Path) -> Dict[str, str]:
+    def _collect_module_file_summaries(self, yaml_dir: Path) -> Dict[str, str]:
         """
-        Build a mapping of repo-relative Python paths -> file summary (markdown content)
-        by scanning a summaries module directory directly (excluding _module.md).
+        Build a mapping of repo-relative Python paths -> file summary (YAML content)
+        by scanning a summaries module directory directly (excluding _module.yaml).
         """
         chunk: Dict[str, str] = {}
-        if not self.summaries_dir or not md_dir.exists() or not md_dir.is_dir():
+        if not self.summaries_dir or not yaml_dir.exists() or not yaml_dir.is_dir():
             return chunk
-        for md_file in md_dir.glob("*.md"):
-            if md_file.name == "_module.md":
+        for yaml_file in yaml_dir.glob("*.yaml"):
+            if yaml_file.name == "_module.yaml":
                 continue
             try:
-                md_content = md_file.read_text(encoding="utf-8")
+                yaml_content = yaml_file.read_text(encoding="utf-8")
             except Exception:
                 continue
-            rel_md = md_file.relative_to(self.summaries_dir)
-            rel_py = str(Path(rel_md).with_suffix(".py"))
-            chunk[rel_py] = md_content
+            rel_yaml = yaml_file.relative_to(self.summaries_dir)
+            rel_py = str(Path(rel_yaml).with_suffix(".py"))
+            chunk[rel_py] = yaml_content
         return chunk
 
     def _write_pydev_snapshot(self) -> None:
@@ -125,12 +123,6 @@ class IterateFlow(Flow):
         Fields may be None or empty when not yet determined.
         """
         try:
-            if hasattr(self, "pydev_yaml_path") and self.pydev_yaml_path:
-                pydev_path = self.pydev_yaml_path
-            elif self.src_dir and self.src_dir.exists():
-                pydev_path = (self.src_dir.parent / "pydev.yaml").resolve()
-            else:
-                pydev_path = (self.repo_dir / "pydev.yaml").resolve()
             data: Dict[str, Any] = {
                 "src_dir": self._to_repo_relative(self.src_dir),
                 "docs_dir": self._to_repo_relative(self.docs_dir),
@@ -143,7 +135,7 @@ class IterateFlow(Flow):
                     "examples": getattr(self, "test_examples", []) or [],
                 },
             }
-            with pydev_path.open("w", encoding="utf-8") as fp:
+            with self.pydev_yaml_path.open("w", encoding="utf-8") as fp:
                 yaml.safe_dump(data, fp, allow_unicode=True, sort_keys=False)
         except Exception:
             pass
@@ -183,14 +175,14 @@ class IterateFlow(Flow):
                 data = yaml.safe_load(fp) or {}
 
             # Directories
-            for key in ("src_dir", "docs_dir", "summaries_dir"):
+            for key in ("src_dir", "docs_dir"):
                 resolved = self._resolve_repo_path(data.get(key))
                 if key == "src_dir":
                     self.src_dir = resolved or self.src_dir
                 elif key == "docs_dir":
                     self.docs_dir = resolved or self.docs_dir
-                else:
-                    self.summaries_dir = resolved or self.summaries_dir
+
+            self.summaries_dir = (self.pydev_dir / "summaries").resolve()
 
             tds = [self._resolve_repo_path(td) for td in (data.get("test_dirs") or [])]
             self.test_dirs = [td for td in tds if td] or self.test_dirs
@@ -206,30 +198,22 @@ class IterateFlow(Flow):
             # Best-effort loader; ignore errors
             pass
 
-    def _regenerate_single_file_summary(self, rel_path: str, new_file_content: str) -> None:
+    def _regenerate_single_file_summary(self, code_path: Path, new_file_content: str) -> None:
         """
         Delete and regenerate the per-file summary for a given repo-relative Python file
         path using the provided latest file content.
         """
         if not self.summaries_dir:
             return
-        try:
-            code_path = (self.src_dir / rel_path).resolve()
-        except Exception:
-            return
-        if code_path.suffix != ".py" or code_path.name == "__init__.py":
-            return
-        summary_path = (self.summaries_dir / Path(rel_path)).with_suffix(".md").resolve()
-        if summary_path.exists():
-            try:
-                summary_path.unlink()
-            except Exception:
-                pass
-        regenerated = self._process_file_summaries_chunk([
-            {"path": rel_path, "content": new_file_content}
-        ])
+        summary_path = self.summaries_dir / code_path.relative_to(self.src_dir).with_suffix(".yaml")
+        regenerated = self._process_file_summaries_chunk(new_file_content)
         if regenerated:
-            write_file_map(regenerated, str(self.summaries_dir))
+            if summary_path.exists():
+                try:
+                    summary_path.unlink()
+                except Exception:
+                    pass
+            write_file(to_yaml_file_map(regenerated), summary_path)
 
     def _get_test_inputs_payload(self) -> Dict[str, Any]:
         payload = {}
@@ -283,18 +267,11 @@ class IterateFlow(Flow):
         self.test_framework = None
         self.test_command = None
         self.test_description = None
-        # Locate pydev.yaml by walking repo once; prefer nearest to repo root
-        found_pydev: Path | None = None
-        try:
-            for dirpath, _dirnames, filenames in os.walk(self.repo_dir):
-                if "pydev.yaml" in filenames:
-                    found_pydev = Path(dirpath) / "pydev.yaml"
-                    break
-        except Exception:
-            found_pydev = None
-        self.pydev_yaml_path = (found_pydev or (self.repo_dir / "pydev.yaml")).resolve()
-        # Attempt to load initial state from pydev.yaml if available
-        self._load_pydev_snapshot()
+        self.pydev_dir = (self.repo_dir / ".pydev").resolve()
+        self.pydev_dir.mkdir(parents=True, exist_ok=True)
+        self.pydev_yaml_path = (self.pydev_dir / "pydev.yaml").resolve()
+        if self.pydev_yaml_path.exists():
+            self._load_pydev_snapshot()
         return {
             "user_prompt": user_prompt,
         }
@@ -324,8 +301,9 @@ class IterateFlow(Flow):
         self.src_dir = Path(structure["code_dir"]).resolve()
         self.docs_dir = Path(structure["docs_dir"]).resolve() if structure["docs_dir"] else None
         self.test_dirs = [Path(test_dir).resolve() for test_dir in structure["test_dirs"]]
-        self.summaries_dir = Path(structure["summaries_dir"]).resolve() if structure.get("summaries_dir") else None
-        # Snapshot after discovering structure
+        self.summaries_dir = (self.pydev_dir / "summaries").resolve()
+        self.summaries_dir.mkdir(parents=True, exist_ok=True)
+        # Snapshot after discovering structure and enforcing dirs
         self._write_pydev_snapshot()
         # Collect Python files excluding __init__.py
         py_paths = [p for p in self.src_dir.rglob("*.py") if p.name != "__init__.py"]
@@ -416,59 +394,6 @@ class IterateFlow(Flow):
 
     @listen(generate_tests_conf)
     def generate_summaries_if_needed(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        # If summaries already exist, do nothing
-        if self.summaries_dir and self.summaries_dir.exists() and any(self.summaries_dir.iterdir()):
-            return inputs
-
-        # Use crew to decide summaries_dir based on src_dir, docs_dir, and test_dirs
-        result = SummariesDirCrew().crew().kickoff(inputs={
-            "src_dir": str(self.src_dir),
-            "docs_dir": str(self.docs_dir) if self.docs_dir else None,
-            "test_dirs": [str(p) for p in self.test_dirs],
-        })
-        decided = load_json_output(result, SUMMARIES_DIR_SCHEMA, 0)
-        # decided is dict-like from schema root
-        summaries_dir_str = decided.get("summaries_dir") if isinstance(decided, dict) else decided[0]["summaries_dir"]
-        try:
-            self.summaries_dir = Path(summaries_dir_str).resolve()
-        except Exception:
-            self.summaries_dir = self.repo_dir / "summaries"
-        self.summaries_dir.mkdir(parents=True, exist_ok=True)
-        # Snapshot after summaries_dir is set
-        self._write_pydev_snapshot()
-
-        py_paths = inputs["py_paths"]
-        folders = set(file_path.parent for file_path in py_paths)
-
-        modules: Dict[str, list[str]] = {}
-        for folder in folders:
-            modules[folder] = [p for p in py_paths if p.parent == folder]
-
-        # One crew call per module (folder)
-        for script_paths in modules.values():
-            chunk: List[str, str] = []
-            for path in script_paths:
-                rel_path = str(path.relative_to(self.src_dir))
-                try:
-                    chunk.append({"path": rel_path, "content": path.read_text(encoding="utf-8")})
-                except Exception:
-                    continue
-            if not chunk:
-                continue
-            file_summaries = self._process_file_summaries_chunk(chunk)
-            if not file_summaries:
-                continue
-            module_summaries = self._process_module_summaries_from_file_summaries(file_summaries)
-            summaries: Dict[str, str] = {}
-            summaries.update(file_summaries)
-            summaries.update(module_summaries)
-            if summaries:
-                write_file_map(summaries, str(self.summaries_dir))
-
-        return inputs
-
-    @listen(generate_summaries_if_needed)
-    def verify_and_fill_missing_summaries(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
         Ensure every Python file has a corresponding summary and every module (folder)
         has a module summary. Missing file summaries are generated from code. Missing
@@ -481,11 +406,11 @@ class IterateFlow(Flow):
         missing_file_rel_paths: list[str] = []
         for py_path in py_paths:
             rel = py_path.relative_to(self.src_dir)
-            expected_md = (self.summaries_dir / rel).with_suffix(".md")
+            expected_md = (self.summaries_dir / rel).with_suffix(".yaml")
             if not expected_md.exists():
                 missing_file_rel_paths.append(str(rel))
 
-        new_file_summaries: Dict[str, str] = {}
+        new_file_summaries: Dict[str, Any] = {}
         if missing_file_rel_paths:
             # Agrupar por módulo (carpeta) y hacer una única llamada por módulo
             py_paths = inputs["py_paths"]
@@ -500,21 +425,17 @@ class IterateFlow(Flow):
                 ]
                 if not rel_missing_in_module:
                     continue
-                chunk: List[Dict[str, str]] = []
                 for rel_str in rel_missing_in_module:
                     code_path = (self.src_dir / rel_str).resolve()
                     try:
                         content = code_path.read_text(encoding="utf-8")
                     except Exception:
                         continue
-                    chunk.append({"path": rel_str, "content": content})
-                if not chunk:
-                    continue
-                generated = self._process_file_summaries_chunk(chunk)
-                new_file_summaries.update(generated)
-
-        if new_file_summaries:
-            write_file_map(new_file_summaries, str(self.summaries_dir))
+                    generated = self._process_file_summaries_chunk(content)
+                    if generated:
+                        yaml_dir = (self.summaries_dir / rel_str).with_suffix(".yaml")
+                        write_file(to_yaml_file_map(generated), yaml_dir)
+                        new_file_summaries.update(generated)
 
         # 2) Check and generate missing MODULE summaries using existing file summaries
         # Determine module folders (parents of Python files)
@@ -522,36 +443,37 @@ class IterateFlow(Flow):
         missing_module_dirs: list[Path] = []
         for folder in module_dirs:
             rel_dir = folder.relative_to(self.src_dir)
-            expected_module_md = (self.summaries_dir / rel_dir / "_module.md").resolve()
-            if not expected_module_md.exists():
-                missing_module_dirs.append(folder)
+            expected_module_yaml = (self.summaries_dir / rel_dir / "_module.yaml").resolve()
+            if not expected_module_yaml.exists():
+                missing_module_dirs.append(expected_module_yaml)
 
-        new_module_summaries: Dict[str, str] = {}
+        new_module_summaries: Dict[str, Any] = {}
         if missing_module_dirs:
-            for module_dir in missing_module_dirs:
+            for module_dir_yaml in missing_module_dirs:
                 # Build input using only the file summaries within this module directory
                 chunk: Dict[str, str] = self._collect_module_file_summaries_from_py_paths(module_dir, py_paths)
                 if not chunk:
                     continue
                 generated = self._process_module_summaries_from_file_summaries(chunk)
-                new_module_summaries.update(generated)
+                if generated:
+                    # Persist each module summary immediately (intermediate save)
+                    write_file(to_yaml_file_map(generated), module_dir_yaml)
+                    new_module_summaries.update(generated)
 
-        if new_module_summaries:
-            write_file_map(new_module_summaries, str(self.summaries_dir))
         return {
             "user_prompt": inputs["user_prompt"],
         }
 
-    @listen(verify_and_fill_missing_summaries)
+    @listen(generate_summaries_if_needed)
     def action_plan(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         # Phase 1: deterministically load all module summaries
         module_summaries: Dict[str, str] = {}
         if not self.summaries_dir:
             return inputs
-        for md_path in self.summaries_dir.rglob("_module.md"):
+        for yaml_path in self.summaries_dir.rglob("_module.yaml"):
             try:
-                rel = str(md_path.relative_to(self.summaries_dir))
-                module_summaries[rel] = md_path.read_text(encoding="utf-8")
+                rel = str(yaml_path.relative_to(self.summaries_dir))
+                module_summaries[rel] = yaml_path.read_text(encoding="utf-8")
             except Exception:
                 continue
 
@@ -567,11 +489,11 @@ class IterateFlow(Flow):
         # Phase 2: load relevant file summaries content deterministically
         relevant_map: Dict[str, str] = {}
         for rel_py in relevant_paths:
-            md_file = (self.summaries_dir / Path(rel_py).relative_to(self.src_dir)).with_suffix(".md").resolve()
+            yaml_file = (self.summaries_dir / Path(rel_py).relative_to(self.src_dir)).with_suffix(".yaml").resolve()
             try:
-                if md_file.exists():
-                    rel_md = str(md_file.relative_to(self.summaries_dir))
-                    relevant_map[rel_md] = md_file.read_text(encoding="utf-8")
+                if yaml_file.exists():
+                    rel_md = str(yaml_file.relative_to(self.summaries_dir))
+                    relevant_map[rel_md] = yaml_file.read_text(encoding="utf-8")
             except Exception:
                 continue
 
@@ -588,11 +510,11 @@ class IterateFlow(Flow):
             summaries_only = []
             need_code = []
 
-        # Deterministically read code for the need_code set (map file.md -> {code,path})
+        # Deterministically read code for the need_code set (map file.yaml -> {code,path})
         code_map: Dict[str, str] = {}
-        for rel_md in need_code:
-            # Convert summaries path like "pkg/mod/file.md" -> source file path under src_dir
-            src_rel = rel_md[:-3] if rel_md.endswith(".md") else rel_md
+        for rel_yaml in need_code:
+            # Convert summaries path like "pkg/mod/file.yaml" -> source file path under src_dir
+            src_rel = rel_yaml[:-5] if rel_yaml.endswith(".yaml") else rel_yaml
             code_file = (self.src_dir / src_rel).with_suffix(".py").resolve()
             try:
                 if code_file.exists():
@@ -657,7 +579,7 @@ class IterateFlow(Flow):
                 rel = p.relative_to(self.src_dir)
             except Exception:
                 return None
-            return (self.summaries_dir / rel).with_suffix(".md")
+            return (self.summaries_dir / rel).with_suffix(".yaml")
 
         def _mirror_delete_files(file_paths: List[str]) -> None:
             if not self.summaries_dir:
@@ -1005,8 +927,10 @@ class IterateFlow(Flow):
         for path, changes in changes_by_file.items():
             # Retrieve original code from disk
             try:
-                original_code = (self.src_dir / path).read_text(encoding="utf-8")
+                code_path = (self.src_dir / path).resolve()
+                original_code = code_path.read_text(encoding="utf-8")
             except Exception:
+                code_path = None
                 original_code = "-"
             fix_result = FixIntegratorCrew().crew().kickoff(
                 inputs={
@@ -1016,18 +940,17 @@ class IterateFlow(Flow):
             )
             file_result = sanitize_generated_content(str(fix_result.tasks_output[0]))
             # Accumulate to write; currently tracking only
-            write_file_map({path: file_result}, str(self.src_dir))
+            write_file(file_result, code_path)
 
             # For modified files: delete original summary and regenerate a new one
             try:
-                code_path = (self.src_dir / path).resolve()
-                if code_path.suffix == ".py" and code_path.name != "__init__.py":
+                if code_path is not None:
                     # Track module directory for later module summary regeneration
                     try:
                         modules_to_refresh.add(Path(path).parent)
                     except Exception:
                         pass
-                    self._regenerate_single_file_summary(path, file_result)
+                    self._regenerate_single_file_summary(code_path, file_result)
             except Exception:
                 # Best-effort; do not fail on summary regeneration issues
                 pass
@@ -1113,32 +1036,24 @@ class IterateFlow(Flow):
                 })
                 final_test_code = sanitize_generated_content(str(ti_result.tasks_output[0]))
                 # Write via deterministic writer relative to test root
-                write_file_map({test_file.relative_to(self.repo_dir): final_test_code}, str(self.repo_dir))
+                write_file(final_test_code, test_file)
 
-        # Regenerate module summaries (_module.md) for affected modules
-        if self.summaries_dir and modules_to_refresh:
-            for module_rel in sorted(modules_to_refresh, key=lambda p: str(p)):
-                try:
-                    md_dir = (self.summaries_dir / module_rel).resolve()
-                    if not md_dir.exists() or not md_dir.is_dir():
-                        continue
-                    # Build input chunk using only per-file summaries in this module directory (exclude _module.md)
-                    chunk: Dict[str, str] = self._collect_module_file_summaries_from_md_dir(md_dir)
-                    if not chunk:
-                        continue
-                    new_module_summaries = self._process_module_summaries_from_file_summaries(chunk)
-                    # Remove existing module summary if present
-                    module_md_path = (self.summaries_dir / module_rel / "_module.md").resolve()
-                    if module_md_path.exists():
-                        try:
-                            module_md_path.unlink()
-                        except Exception:
-                            pass
-                    if new_module_summaries:
-                        write_file_map(new_module_summaries, str(self.summaries_dir))
-                except Exception:
-                    # Best-effort; do not fail the flow if module regen fails
+        # Regenerate module summaries (_module.yaml) for affected modules
+        for module_rel in sorted(modules_to_refresh, key=lambda p: str(p)):
+            try:
+                module_yaml_path = (self.summaries_dir / module_rel / "_module.yaml").resolve()
+                module_yaml_path.parent.mkdir(parents=True, exist_ok=True)
+                # Build input chunk using only per-file summaries in this module directory (exclude _module.yaml)
+                chunk: Dict[str, str] = self._collect_module_file_summaries(module_yaml_path.parent)
+                if not chunk:
                     continue
+                generated = self._process_module_summaries_from_file_summaries(chunk)
+                if generated:
+                    # Persist each module summary immediately (intermediate save)
+                    write_file(to_yaml_file_map(generated), module_yaml_path)
+            except Exception:
+                # Best-effort; do not fail the flow if module regen fails
+                continue
 
         execution_summary: Dict[str, Any] = {
             "created_files": created,

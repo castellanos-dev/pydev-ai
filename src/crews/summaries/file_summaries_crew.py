@@ -2,7 +2,7 @@ from __future__ import annotations
 from crewai import Crew, Process, Task
 from crewai.project import crew, task
 from .crew import BaseSummariesCrew
-from .output_format.summaries import SummariesOutput
+from .output_format.summaries import FileSummariesOutput
 
 
 class FileSummariesCrew(BaseSummariesCrew):
@@ -17,7 +17,7 @@ class FileSummariesCrew(BaseSummariesCrew):
     def summarize_chunk(self) -> Task:
         return Task(
             config=self.tasks_config["summarize_chunk"],
-            output_json=SummariesOutput,
+            output_json=FileSummariesOutput,
         )
 
     @crew

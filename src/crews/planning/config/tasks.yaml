@@ -38,7 +38,7 @@ classify_file_detail:
 
     Task:
     Given the user's prompt and the JSON map of relevant file summaries
-    (path -> markdown content), divide the files into two sets:
+    (path -> YAML content), divide the files into two sets:
     - summaries_only: summaries are sufficient to plan at high confidence
     - need_code: reading the file source code is required to plan accurately
 

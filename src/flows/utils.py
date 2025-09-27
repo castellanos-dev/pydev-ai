@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple, Union
 from crewai import TaskOutput
 import json
+import yaml
 
 from ..summaries.storage import digests_root
 from ..summaries.summarizer import bootstrap_digest
@@ -113,7 +114,7 @@ def ensure_knowledge(repo: str) -> Union[None, str]:
     # Ensure digests directory exists and bootstrap overview if missing.
     digests_dir = digests_root(repo)
     digests_dir.mkdir(parents=True, exist_ok=True)
-    overview = digests_dir / "00_overview.md"
+    overview = digests_dir / "00_overview.yaml"
     if not overview.exists():
         bootstrap_digest(str(digests_dir.parent))
     return str(digests_dir)
@@ -238,6 +239,30 @@ def write_file_map(files: Dict[str, str], out_dir: str, sub_dir: str = "") -> Li
         if base != target and base not in target.parents:
             raise ValueError(f"Illegal path outside base: {target}")
         target.parent.mkdir(parents=True, exist_ok=True)
-        written = target.write_text(content, encoding="utf-8")
+        written = target.write_text(str(content), encoding="utf-8")
         log.append((str(path), written))
     return log
+
+
+def write_file(file_content: str, path: Path) -> int:
+    """
+    Deterministically write files under out_dir with path traversal protection.
+    Returns the number of bytes written.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    written = path.write_text(str(file_content), encoding="utf-8")
+    return written
+
+
+def to_yaml_file_map(content: Dict[str, Any]) -> str:
+    """
+    Convert a JSON-serializable object into a YAML string ready to be written.
+    Ensures stable key order and trailing newline.
+    """
+    try:
+        text = yaml.safe_dump(content, allow_unicode=True, sort_keys=False)
+        if not text.endswith("\n"):
+            text = text + "\n"
+    except Exception:
+        return ''
+    return text

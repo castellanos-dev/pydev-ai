@@ -20,11 +20,6 @@ analyze_project_structure:
         but also include per-app tests like `apps/*/tests` (e.g., Django apps) and
         `*/tests` patterns under the repo root. Include unique directories only.
         Empty list if no test directories are found.
-      - summaries_dir: absolute path to an existing summaries directory if present.
-        It MUST comply with the structure defined by the new project flow, where
-        summaries are written under a top-level `summaries/` directory mirroring the
-        code module layout (e.g., summaries/<module>/*.md). If such a directory is not
-        present, return null. Do not invent it.
 
     Constraints:
       - Return absolute paths only.
@@ -38,7 +33,6 @@ analyze_project_structure:
       "code_dir": str,
       "docs_dir": str|null,
       "test_dirs": [str],
-      "summaries_dir": str|null
     }
     Use compact JSON; do not add prose outside JSON.
   agent: structure_analyst
