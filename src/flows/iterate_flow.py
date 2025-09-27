@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Set
 import shutil
 import yaml
 from crewai.flow import Flow, start, listen
@@ -9,6 +9,7 @@ from .utils import ensure_repo, load_json_output, load_json_list, load_json_obje
 from ..crews.project_structure.crew import ProjectStructureCrew
 from ..crews.project_structure.output_format.project_structure import PROJECT_STRUCTURE_SCHEMA
 from .utils import to_yaml_file_map, write_file
+from .utils import apply_combined_unified_diffs, extract_diffs_by_file, collect_module_dirs_from_diffs_map
 from .common import (
     generate_file_summaries_from_chunk,
     generate_module_summaries_from_file_summaries,
@@ -29,7 +30,6 @@ from ..crews.development_diff.crew import (
     LeadDevelopmentDiffCrew,
 )
 from ..crews.development_diff.output_format.generate_diffs import GENERATE_DIFFS_SCHEMA
-from ..crews.fix_integrator.crew import FixIntegratorCrew
 from ..crews.tests_integrator.crew import TestsIntegratorCrew
 from .utils import sanitize_generated_content
 from ..crews.tests_conf.crew import TestsConfCrew
@@ -714,6 +714,7 @@ class IterateFlow(Flow):
         modifications: list[dict] = []
         generated_tests_code: Dict[str, Dict[str, List[str]]] = {}
         modules_to_refresh = set()
+        files_changed: Set[str] = set()
 
         for step in plan:
             step_type = (step.get("type") or "").strip()
@@ -860,6 +861,20 @@ class IterateFlow(Flow):
                     file_changes = load_json_output(dev_result, GENERATE_DIFFS_SCHEMA)
                     modifications.extend(file_changes)
 
+                    # Apply diffs with git apply
+                    if file_changes:
+                        # Aggregate diffs by file and apply via helper
+                        extracted = extract_diffs_by_file(file_changes)
+                        files_changed.update(extracted.keys())
+                        modules_to_refresh.update(collect_module_dirs_from_diffs_map(extracted))
+                        ok, err = apply_combined_unified_diffs(self.repo_dir, self.src_dir, extracted)
+                        if not ok:
+                            errors.append({
+                                "step": "Modify code",
+                                "type": "git apply",
+                                "error": err,
+                            })
+
                     # Step 2: update test file
                     if len(test_inputs_payload) > 0 and self._should_test_be_modified():
                         # Build inputs for the crew
@@ -915,44 +930,18 @@ class IterateFlow(Flow):
                     "error": str(exc),
                 })
 
-        changes_by_file: Dict[str, List[str]] = {}
-        for modification in modifications:
-            path = modification.get("path")
-            content_diff = modification.get("content_diff")
-            if path not in changes_by_file:
-                changes_by_file[path] = []
-            changes_by_file[path].append(content_diff)
-
-        modules_to_refresh = set()
-        for path, changes in changes_by_file.items():
-            # Retrieve original code from disk
+        # For modified files: delete original summary and regenerate a new one (after git apply)
+        for path in files_changed:
             try:
                 code_path = (self.src_dir / path).resolve()
-                original_code = code_path.read_text(encoding="utf-8")
+                updated_code = code_path.read_text(encoding="utf-8")
             except Exception:
                 code_path = None
-                original_code = "-"
-            fix_result = FixIntegratorCrew().crew().kickoff(
-                inputs={
-                    "original_code": original_code,
-                    "code_fixes": changes,
-                }
-            )
-            file_result = sanitize_generated_content(str(fix_result.tasks_output[0]))
-            # Accumulate to write; currently tracking only
-            write_file(file_result, code_path)
-
-            # For modified files: delete original summary and regenerate a new one
+                updated_code = ""
             try:
                 if code_path is not None:
-                    # Track module directory for later module summary regeneration
-                    try:
-                        modules_to_refresh.add(Path(path).parent)
-                    except Exception:
-                        pass
-                    self._regenerate_single_file_summary(code_path, file_result)
+                    self._regenerate_single_file_summary(code_path, updated_code)
             except Exception:
-                # Best-effort; do not fail on summary regeneration issues
                 pass
 
         # --- Integrate generated unit tests into mirrored test files ---
@@ -1027,16 +1016,23 @@ class IterateFlow(Flow):
                 # Collect nearest fixtures
                 fixtures_text = _collect_nearby_fixtures(test_file)
 
-                # Integrate using advanced tests integrator crew
+                # Integrate using advanced tests integrator crew (now returns unified diffs)
                 ti_result = TestsIntegratorCrew().crew().kickoff(inputs={
                     "framework": self.test_framework or "",
                     "original_test_code": original_test_code,
                     "generated_tests_code": snippets,
                     "available_fixtures": fixtures_text,
                 })
-                final_test_code = sanitize_generated_content(str(ti_result.tasks_output[0]))
-                # Write via deterministic writer relative to test root
-                write_file(final_test_code, test_file)
+                test_file_diffs = load_json_output(ti_result, GENERATE_DIFFS_SCHEMA, 0)
+                extracted_test_diffs = extract_diffs_by_file(test_file_diffs)
+                # Apply diff to tests via the same git-apply helper
+                ok, err = apply_combined_unified_diffs(self.repo_dir, self.src_dir, extracted_test_diffs)
+                if not ok:
+                    errors.append({
+                        "step": "Integrate tests",
+                        "type": "git apply",
+                        "error": err,
+                    })
 
         # Regenerate module summaries (_module.yaml) for affected modules
         for module_rel in sorted(modules_to_refresh, key=lambda p: str(p)):

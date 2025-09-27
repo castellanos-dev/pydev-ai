@@ -22,14 +22,14 @@ class TestsIntegratorCrew:
     tasks: List[Task]
 
     def __init__(self):
-        # Prefer a stronger model for code integration
-        self.llm_light = llms()["light"]
+        # Use a stronger model for code integration
+        self.llm_medium = llms()["medium"]
 
     @agent
     def tests_integrator(self) -> Agent:
         return Agent(
             config=self.agents_config["tests_integrator"],  # type: ignore[index]
-            llm=self.llm_light,
+            llm=self.llm_medium,
             verbose=True,
         )
 

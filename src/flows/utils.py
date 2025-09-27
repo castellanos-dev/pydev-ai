@@ -1,5 +1,7 @@
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union, Set
+import tempfile
+import subprocess
 from crewai import TaskOutput
 import json
 import yaml
@@ -266,3 +268,96 @@ def to_yaml_file_map(content: Dict[str, Any]) -> str:
     except Exception:
         return ''
     return text
+
+
+def apply_combined_unified_diffs(
+    repo_dir: Union[str, Path],
+    src_dir: Union[str, Path],
+    diffs_by_file: Dict[str, List[str]],
+) -> Tuple[bool, str]:
+    """
+    Apply a combined unified diff to a repository using `git apply`.
+
+    Parameters
+    ----------
+    repo_dir: base repository directory where .git lives
+    src_dir: root of source tree (used as fallback cwd)
+    diffs_by_file: mapping file path -> list of unified diff strings
+
+    Returns
+    -------
+    (success, error)
+      - success: True if git apply succeeded in any attempt
+      - error: stderr text if failed, empty string on success
+    """
+    if not diffs_by_file:
+        return True, ""
+
+    repo_dir = Path(repo_dir).resolve()
+    src_dir = Path(src_dir).resolve()
+
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            patch_path = Path(td) / "changes.diff"
+            combined: List[str] = []
+            for _path, diffs in diffs_by_file.items():
+                for d in diffs:
+                    if not isinstance(d, str):
+                        continue
+                    combined.append(d.rstrip("\n") + "\n")
+            patch_content = "\n".join(combined)
+            patch_path.write_text(patch_content, encoding="utf-8")
+
+            def _run_git_apply(cwd: Path, args: List[str]) -> subprocess.CompletedProcess:
+                return subprocess.run(
+                    ["git", "apply", *args, str(patch_path)],
+                    cwd=str(cwd),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+
+            result = _run_git_apply(repo_dir, ["--whitespace=fix", "--index"])
+            if result.returncode == 0:
+                return True, ""
+            result = _run_git_apply(repo_dir, ["--whitespace=fix"])
+            if result.returncode == 0:
+                return True, ""
+            result = _run_git_apply(src_dir, ["--whitespace=fix"])
+            if result.returncode == 0:
+                return True, ""
+            return False, (result.stderr or "git apply failed")
+    except Exception as exc:
+        return False, str(exc)
+
+
+def extract_diffs_by_file(items: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    """
+    Normalize a list of diff items into a mapping path -> list[content_diff].
+    Ignores entries without a valid path or string diff.
+    """
+    grouped: Dict[str, List[str]] = {}
+    for item in items or []:
+        try:
+            path = str(item.get("path", "")).strip()
+            diff = item.get("content_diff")
+        except Exception:
+            continue
+        if not path or not isinstance(diff, str):
+            continue
+        grouped.setdefault(path, []).append(diff)
+    return grouped
+
+
+def collect_module_dirs_from_diffs_map(diffs_by_file: Dict[str, List[str]]) -> Set[Path]:
+    """
+    Given a diffs map path -> list[diff], return the set of parent directories
+    (as Path objects) that should have their module summaries refreshed.
+    """
+    modules: Set[Path] = set()
+    for path in (diffs_by_file or {}).keys():
+        try:
+            modules.add(Path(path).parent)
+        except Exception:
+            continue
+    return modules

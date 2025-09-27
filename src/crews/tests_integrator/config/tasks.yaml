@@ -15,14 +15,17 @@ integrate_tests:
     existing structure, classes, and fixtures. Ensure imports and style are consistent.
 
     Rules:
-      - Output MUST be the FULL final content of the test file, not a diff.
-      - If suitable, insert new tests into existing test classes; otherwise add new functions/classes.
-      - Reuse fixtures if names match; do not duplicate identical fixtures.
-      - Avoid redefining imports that already exist; consolidate imports cleanly.
-      - Ensure idempotent reruns (no duplicate test functions on repeated merges).
+      - Generate MINIMAL and correct unified diff (patch) against the current file.
+      - Reuse fixtures and group tests under a single class when appropriate.
+      - Generate fixtures for new tests if the performance of the new tests can be improved.
+      - Remove an existing test ONLY if new changes make it directly obsolete.
+
+    Rules for the diff:
+      - Output MUST be a valid unified diff with correct headers and context.
+      - Do not output full file content, only the diff hunks.
 
   expected_output: >
-    The final content of the test file. No prose outside the code.
+    A JSON list of objects: [{"path": str, "content_diff": str}]
   agent: tests_integrator
 
 
