@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import os
+import configparser
 from typing import Dict, Any, List, Set
 import shutil
 import yaml
@@ -31,7 +32,6 @@ from ..crews.development_diff.crew import (
 )
 from ..crews.development_diff.output_format.generate_diffs import GENERATE_DIFFS_SCHEMA
 from ..crews.tests_integrator.crew import TestsIntegratorCrew
-from .utils import sanitize_generated_content
 from ..crews.tests_conf.crew import TestsConfCrew
 from ..crews.tests_conf.output_format.tests_conf import TESTS_CONF_SCHEMA
 from ..crews.tests_planning.crew import (
@@ -164,6 +164,8 @@ class IterateFlow(Flow):
         Load initial configuration from pydev.yaml if present, resolving paths
         relative to repo_dir when necessary.
         """
+        if not self.pydev_yaml_path.exists():
+            return
         try:
             pydev_path = getattr(self, "pydev_yaml_path", None)
             if not pydev_path:
@@ -198,6 +200,35 @@ class IterateFlow(Flow):
             # Best-effort loader; ignore errors
             pass
 
+    def _load_setup_cfg_toggle(self) -> None:
+        """
+        Read optional [pydev] toggle from setup.cfg in the target repo to control
+        whether IterateFlow should perform unit-test related steps.
+
+        Supported keys under [pydev] (first found wins):
+          - iterateflow_tests
+          - iterateflow_run_tests
+          - iterateflow_enable_tests
+        Values are parsed as booleans; default is True when missing/invalid.
+        """
+        try:
+            cfg_path = (self.repo_dir / "setup.cfg").resolve()
+            if not cfg_path.exists() or not cfg_path.is_file():
+                return
+            parser = configparser.ConfigParser()
+            parser.read([str(cfg_path)], encoding="utf-8")
+            if not parser.has_section("pydev"):
+                return
+            if parser.has_option("pydev", "tests"):
+                try:
+                    self.tests_enabled = parser.getboolean("pydev", "tests", fallback=True)
+                except Exception:
+                    raw = parser.get("pydev", "tests", fallback="true")
+                    self.tests_enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+        except Exception:
+            # Best-effort reader; ignore errors
+            pass
+
     def _regenerate_single_file_summary(self, code_path: Path, new_file_content: str) -> None:
         """
         Delete and regenerate the per-file summary for a given repo-relative Python file
@@ -229,7 +260,7 @@ class IterateFlow(Flow):
         return payload
 
     def _should_test_be_modified(self) -> bool:
-        return self.test_dirs is not None
+        return bool(getattr(self, "tests_enabled", True)) and self.test_dirs is not None
 
     def _select_relevant_test_file(
         self,
@@ -267,11 +298,13 @@ class IterateFlow(Flow):
         self.test_framework = None
         self.test_command = None
         self.test_description = None
+        self.tests_enabled = True
         self.pydev_dir = (self.repo_dir / ".pydev").resolve()
         self.pydev_dir.mkdir(parents=True, exist_ok=True)
         self.pydev_yaml_path = (self.pydev_dir / "pydev.yaml").resolve()
-        if self.pydev_yaml_path.exists():
-            self._load_pydev_snapshot()
+        self._load_pydev_snapshot()
+        # Allow repo-level setup.cfg to override test behavior
+        self._load_setup_cfg_toggle()
         return {
             "user_prompt": user_prompt,
         }
@@ -316,6 +349,9 @@ class IterateFlow(Flow):
         provides non-null test configuration, skip detection.
         """
         try:
+            # If tests are disabled via setup.cfg, skip test detection entirely
+            if not getattr(self, "iterate_tests_enabled", True):
+                return inputs
             # If test configuration already loaded from pydev.yaml, skip
             if all([
                 self.test_framework is not None,
@@ -999,7 +1035,7 @@ class IterateFlow(Flow):
                     break
             return "\n\n".join(collected)
 
-        if generated_tests_code:
+        if self._should_test_be_modified() and generated_tests_code:
             for src_rel, snippets in generated_tests_code.items():
                 if 'code' not in snippets or not snippets['code']:
                     continue

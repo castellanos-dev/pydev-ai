@@ -226,6 +226,18 @@ If you run inside Docker with `--out /workspace/out/<name>`, on the host you'll 
 export LOG_LEVEL=DEBUG
 ```
 
+### IterateFlow tests toggle via setup.cfg
+
+You can control whether IterateFlow generates/modifies/tests unit tests by adding a `[pydev]` section in your target repo's `setup.cfg`:
+
+```ini
+[pydev]
+# Any of these keys are accepted; first one found is used
+tests = true
+```
+
+When disabled (`false`), IterateFlow will skip test detection, planning, implementation, and test file integration steps.
+
 ---
 
 ## License
