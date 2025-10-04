@@ -9,3 +9,4 @@ ruff>=0.5.0
 pytest>=8.2.0
 gitpython>=3.1.43
 python-dotenv>=1.0.1
+chromadb>=0.5.5

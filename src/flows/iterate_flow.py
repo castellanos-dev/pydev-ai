@@ -58,6 +58,8 @@ from ..tools.file_system import (
     move_file,
     copy_file,
 )
+from ..tools.rag_tools import DocsRAG
+from .. import settings
 
 
 class IterateFlow(Flow):
@@ -313,7 +315,7 @@ class IterateFlow(Flow):
     def identify_project_structure(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
 
         # Collect relevant files using glob: .py, .md, .rst
-        patterns = ["**/*.md", "**/*.rst"]
+        patterns = ["**/*.md", "**/*.rst", "**/*.txt", "**/*.mdx"]
         repo_py_files_list = sorted(str(p) for p in self.repo_dir.glob("**/*.py"))
         file_list = sorted(str(p) for pat in patterns for p in self.repo_dir.glob(pat))
         file_list.extend(repo_py_files_list)
@@ -1100,6 +1102,99 @@ class IterateFlow(Flow):
         }
 
         return {**inputs, "execution_summary": execution_summary}
+
+    @listen(execute_action_plan)
+    def update_documentation(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Update documentation after code changes."""
+        if not self.docs_dir:
+            return inputs
+        # Build a concise query from execution summary (modified files and plan context)
+        try:
+            summary = inputs.get("execution_summary", {})
+        except Exception:
+            summary = {}
+        modified_files = summary.get("modified_files", [])
+        # Create a human-readable context summarizing changes
+        changed_paths: list[str] = []
+        for item in modified_files or []:
+            try:
+                p = str((item or {}).get("path", "")).strip()
+                if p:
+                    changed_paths.append(p)
+            except Exception:
+                continue
+        changed_paths = sorted(set(changed_paths))
+
+        if not changed_paths:
+            return {**inputs, "docs_candidates": []}
+
+        # Initialize docs-only RAG and ensure index is up-to-date (incremental)
+        docs_rag = DocsRAG(repo_dir=self.repo_dir, docs_dir=self.docs_dir)
+        docs_rag.index()
+
+        # Build richer context for RAG queries
+        user_prompt = inputs.get("user_prompt", "") or ""
+        action_plan = inputs.get("action_plan", []) or []
+        plan_text_lines: list[str] = []
+        for step in action_plan[:20]:
+            try:
+                s = str(step.get("description", "")).strip()
+            except Exception:
+                s = ""
+            if s:
+                plan_text_lines.append(s)
+        plan_text = "\n".join(plan_text_lines)
+
+        # Collect diff excerpts
+        diff_lines: list[str] = []
+        for item in modified_files[:5]:
+            try:
+                d = str((item or {}).get("content_diff", ""))
+            except Exception:
+                d = ""
+            if d:
+                diff_lines.append(d[:2000])
+        diff_preview = "\n\n".join(diff_lines)
+
+        # Run multi-query and fuse results
+        queries: list[str] = []
+        if diff_preview:
+            queries.append(diff_preview)
+        if plan_text:
+            queries.append(plan_text)
+        if user_prompt:
+            queries.append(user_prompt)
+        if not queries:
+            queries.append(", ".join(changed_paths[:25]))
+
+        content: list[str] = []
+        distances: list[float] = []
+        paths: list[str] = []
+        for q in queries:
+            rag_result = docs_rag.search(query=q, top_k_files=settings.TOP_K_DOC_FILES)
+            p = rag_result['paths']
+            content.extend(rag_result['documents'])
+            distances.extend(rag_result['distances'])
+            paths.extend(rag_result['paths'])
+
+        # sort by distance
+        sorted_indices = sorted(range(len(distances)), key=lambda i: distances[i])
+        unique_paths = []
+        unique_path_indices = []
+        for i in sorted_indices:
+            if paths[i] not in unique_paths:
+                unique_paths.append(paths[i])
+                unique_path_indices.append(i)
+        sorted_indices = unique_path_indices[:settings.TOP_K_DOC_FILES]
+        documents = {paths[i]: content[i] for i in sorted_indices}
+
+        print('--------------------------------')
+        print('--------------------------------')
+        print(documents)
+        print('--------------------------------')
+        print('--------------------------------')
+
+        return {**inputs}
 
     def run(self, user_prompt: str, repo: str) -> Dict[str, Any]:
         """Convenience method for CLI integration."""
