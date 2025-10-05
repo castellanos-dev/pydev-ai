@@ -1,0 +1,36 @@
+update_release_notes:
+  description: >
+
+    User prompt:
+    """
+    {user_prompt}
+    """
+
+    Action plan:
+    """
+    {action_plan}
+    """
+
+    Current release notes content:
+    """
+    {current_content}
+    """
+
+    Version: {version}
+    UNFORMATTED Date: {date}
+
+    Requirements:
+    - Keep the file format of the current release notes content. Convert the unformatted date to a formatted date.
+    - Keep changes minimal.
+
+    IMPORTANT:
+    - Produce a VALID unified diff (patch) that `git apply` accepts.
+    - The unified diff headers MUST use the form `--- a/{doc_path}` and `+++ b/{doc_path}`.
+    - Respect blank lines following headers and hunk ranges (e.g., @@ -start,count +start,count @@).
+    - If no change is needed, return an empty string.
+
+  expected_output: >
+    Output JSON format:
+    {"root": str}
+    Return only compact JSON, with no additional prose.
+  agent: release_notes_editor

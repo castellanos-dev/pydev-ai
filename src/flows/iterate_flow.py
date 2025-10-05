@@ -61,6 +61,7 @@ from ..tools.file_system import (
     copy_file,
 )
 from ..tools.rag_tools import DocsRAG
+from .release_notes import update_release_notes
 from .. import settings
 from ..crews.docs_relevance.crew import DocsRelevanceCrew
 from ..crews.docs_relevance.output_format.relevant_docs import RELEVANT_DOCS_SCHEMA
@@ -1221,6 +1222,15 @@ class IterateFlow(Flow):
             if not ok:
                 # best-effort; carry error message in execution summary pattern
                 pass
+
+        # Update the release notes (delegated helper)
+        update_release_notes(
+            repo_dir=self.repo_dir,
+            docs_dir=self.docs_dir,
+            src_dir=self.src_dir,
+            user_prompt=user_prompt,
+            action_plan=action_plan,
+        )
 
         return {**inputs, "docs_candidates": docs_candidates}
 
