@@ -13,12 +13,13 @@ generate_diffs:
 
     The diff MUST be a valid unified diff applying to the given file path, with
     correct file headers and context. If no change is needed for a file, omit it.
+    The unified diff headers MUST use the form `--- a/[relative_path]` and
+    `+++ b/[relative_path]`, where `[relative_path]` is the path of the file
+    relative to `{src_dir}` (no leading slash, and do not include `{src_dir}`).
 
     Details per item:
       - path: relative path to the file being changed
       - content_diff: unified diff to apply
-
-    IMPORTANT: The path must be absolute under the source code directory.
 
   expected_output: >
     Output JSON format:
@@ -28,5 +29,6 @@ generate_diffs:
         "content_diff": str
       }]
     }
+    IMPORTANT: The path output must be absolute under the source code directory.
     Use compact language. Do not add prose outside JSON.
   agent: code_diff_generator

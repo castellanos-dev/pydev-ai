@@ -5,15 +5,24 @@ summarize_modules:
 
     ------------------------------------------------------------
 
-    Task:
-    Generate one high-level JSON overview per package/folder from the information of
-    the individual summaries provided. Use ONLY the provided JSON structure.
+    Goal:
+    Produce one highlevel JSON overview per toplevel package/folder using ONLY the provided summaries.
+
+    Rules:
+      - Use English in all outputs.
+      - Return compact JSON (minified; no extra spaces or newlines).
+      - Do not invent folders, files, classes, functions, or dependencies.
+      - If a value is unknown, use "" for strings or [] for arrays.
+      - Truncate any description to <= 180 characters.
+      - Keep keys exactly as specified.
+      - Do not include versions for dependencies.
 
     Guidance:
       - Infer packages/folders by grouping files by their top-level directories within the
         chunk; do not invent folders that are not present.
       - Keep overviews concise, focusing on responsibilities, interfaces, and relationships.
-      - Use English in all outputs.
+
+    First, think through the necessary logic and data. Then, in a second step, generate only the JSON object.
 
   expected_output: >-
     Output JSON:

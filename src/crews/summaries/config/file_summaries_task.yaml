@@ -16,6 +16,11 @@ summarize_chunk:
       - Maintain semantic focus and keep it compact; do not repeat large code
         blocks (only minimal code in examples when helpful).
 
+    Rules:
+      - Return compact JSON (minified; no extra spaces or newlines).
+
+    First, think through the necessary logic and data. Then, in a second step, generate only the JSON object.
+
   expected_output: >-
     Output JSON:
       {

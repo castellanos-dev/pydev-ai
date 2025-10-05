@@ -483,13 +483,13 @@ class IterateFlow(Flow):
             rel_dir = folder.relative_to(self.src_dir)
             expected_module_yaml = (self.summaries_dir / rel_dir / "_module.yaml").resolve()
             if not expected_module_yaml.exists():
-                missing_module_dirs.append(expected_module_yaml)
+                missing_module_dirs.append((expected_module_yaml, folder))
 
         new_module_summaries: Dict[str, Any] = {}
         if missing_module_dirs:
-            for module_dir_yaml in missing_module_dirs:
+            for module_dir_yaml, src_module_dir in missing_module_dirs:
                 # Build input using only the file summaries within this module directory
-                chunk: Dict[str, str] = self._collect_module_file_summaries_from_py_paths(module_dir, py_paths)
+                chunk: Dict[str, str] = self._collect_module_file_summaries_from_py_paths(src_module_dir, py_paths)
                 if not chunk:
                     continue
                 generated = self._process_module_summaries_from_file_summaries(chunk)
@@ -1075,7 +1075,9 @@ class IterateFlow(Flow):
         # Regenerate module summaries (_module.yaml) for affected modules
         for module_rel in sorted(modules_to_refresh, key=lambda p: str(p)):
             try:
-                module_yaml_path = (self.summaries_dir / module_rel / "_module.yaml").resolve()
+                module_yaml_path = (self.summaries_dir / module_rel.relative_to(self.src_dir) / "_module.yaml").resolve()
+                if module_yaml_path.exists():
+                    module_yaml_path.unlink()
                 module_yaml_path.parent.mkdir(parents=True, exist_ok=True)
                 # Build input chunk using only per-file summaries in this module directory (exclude _module.yaml)
                 chunk: Dict[str, str] = self._collect_module_file_summaries(module_yaml_path.parent)
@@ -1187,12 +1189,6 @@ class IterateFlow(Flow):
                 unique_path_indices.append(i)
         sorted_indices = unique_path_indices[:settings.TOP_K_DOC_FILES]
         documents = {paths[i]: content[i] for i in sorted_indices}
-
-        print('--------------------------------')
-        print('--------------------------------')
-        print(documents)
-        print('--------------------------------')
-        print('--------------------------------')
 
         return {**inputs}
 
