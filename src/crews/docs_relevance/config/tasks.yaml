@@ -1,0 +1,31 @@
+select_relevant_docs:
+  description: >
+
+    User prompt:
+    """
+    {user_prompt}
+    """
+
+    Action plan:
+    """
+    {action_plan}
+    """
+
+    Candidate documents (path -> content):
+    {documents}
+
+    Goal:
+    Return a JSON list with the minimal set of document paths that must be
+    updated to satisfy the user's request and the plan.
+
+    Requirements:
+      - Only include paths that are necessary to change.
+      - Consider consistency across related documents; include all that must be updated.
+      - Favor precision; do not include unrelated paths.
+      - Output absolute or repo-root relative paths as provided in the input.
+
+  expected_output: >
+    Output JSON format:
+    {"root": [str]}
+    Output only compact JSON, no surrounding prose.
+  agent: relevance_analyst

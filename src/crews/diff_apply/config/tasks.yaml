@@ -1,0 +1,24 @@
+apply_unified_diff:
+  description: >
+    Inputs:
+    file_path: {file_path}
+    original_content:
+    ```{original_content}```
+    unified_diffs
+    ```{unified_diffs}```
+
+    Goal: produce the final complete content of the file after applying all diffs.
+
+    Rules:
+      - Apply all the unified diffs precisely. If headers use a/ or b/ prefixes,
+        ignore them for matching; the diff targets {file_path}.
+      - If the diff cannot be applied mechanically due to context mismatches,
+        reconcile by interpreting intent and still return the intended final content.
+      - Preserve unrelated code and formatting.
+      - Output only the final full file content string. Do not return a diff.
+
+  expected_output: >
+    Output JSON format:
+    {"root": str}
+    Output only compact JSON, no prose.
+  agent: diff_apply_engineer

@@ -10,6 +10,8 @@ from ..summaries.storage import digests_root
 from ..summaries.summarizer import bootstrap_digest
 
 from ..crews.json_fixer import JSONFixerCrew
+from ..crews.diff_apply.crew import DiffApplyCrew
+from ..crews.diff_apply.output_format.full_file import FULL_FILE_SCHEMA
 
 
 def is_something_to_fix(output: TaskOutput) -> bool:
@@ -302,9 +304,11 @@ def apply_combined_unified_diffs(
             combined: List[str] = []
             for _path, diffs in diffs_by_file.items():
                 for d in diffs:
-                    if not isinstance(d, str):
+                    if not isinstance(d, str) or len(d) == 0:
                         continue
                     combined.append(d.rstrip("\n") + "\n")
+            if (len(combined) == 0):
+                return True, ""
             patch_content = "\n".join(combined)
             patch_path.write_text(patch_content, encoding="utf-8")
 
@@ -326,6 +330,80 @@ def apply_combined_unified_diffs(
             result = _run_git_apply(src_dir, ["--whitespace=fix"])
             if result.returncode == 0:
                 return True, ""
+
+            # If git apply failed, fallback to LLM-assisted full-file rewrite per diff
+            def _extract_path_from_diff(diff_text: str) -> str | None:
+                try:
+                    for line in diff_text.splitlines():
+                        line = line.strip()
+                        if line.startswith("+++ "):
+                            # Formats: '+++ b/path', '+++ path', '+++ /dev/null'
+                            header = line[4:].strip()
+                            if header == "/dev/null":
+                                return None
+                            if header.startswith("b/"):
+                                header = header[2:]
+                            return header
+                        if line.startswith("--- "):
+                            header = line[4:].strip()
+                            if header and header != "/dev/null":
+                                if header.startswith("a/"):
+                                    header = header[2:]
+                                return header
+                    return None
+                except Exception:
+                    return None
+
+            def _resolve_target_abs_path(header_path: str | None, fallback_key: str) -> Path:
+                # Prefer header path; fallback to mapping key
+                raw = header_path or fallback_key
+                p = Path(raw)
+                if p.is_absolute():
+                    return p.resolve()
+                # Prefer under src_dir; else under repo_dir
+                candidate = (src_dir / raw).resolve()
+                try:
+                    # Ensure path is inside repo
+                    _ = candidate.relative_to(repo_dir)
+                    return candidate
+                except Exception:
+                    return (repo_dir / raw).resolve()
+
+            wrote_any = False
+            for key_path, diffs in diffs_by_file.items():
+                valid_diffs = [d for d in diffs if isinstance(d, str) and d.strip()]
+                if not valid_diffs:
+                    continue
+                # Determine target from the first valid diff header
+                header_rel = _extract_path_from_diff(valid_diffs[0])
+                if header_rel is None:
+                    # Skip diffs targeting /dev/null or invalid headers
+                    continue
+                abs_target = _resolve_target_abs_path(header_rel, key_path)
+                try:
+                    original_content = abs_target.read_text(encoding="utf-8")
+                except Exception:
+                    original_content = ""
+
+                try:
+                    crew_result = DiffApplyCrew().crew().kickoff(inputs={
+                        "file_path": str(abs_target.relative_to(repo_dir)) if abs_target.is_absolute() else str(abs_target),
+                        "original_content": original_content,
+                        "unified_diffs": valid_diffs,
+                    })
+                    final_text = load_json_output(crew_result, FULL_FILE_SCHEMA)
+                    if isinstance(final_text, list):
+                        final_text = "\n".join([str(x) for x in final_text])
+                    final_text = sanitize_generated_content(str(final_text))
+                    abs_target.parent.mkdir(parents=True, exist_ok=True)
+                    abs_target.write_text(final_text, encoding="utf-8")
+                    wrote_any = True
+                except Exception:
+                    # Best-effort fallback for this file; continue others
+                    continue
+
+            if wrote_any:
+                return True, (result.stderr or "git apply failed; applied LLM fallback")
             return False, (result.stderr or "git apply failed")
     except Exception as exc:
         return False, str(exc)

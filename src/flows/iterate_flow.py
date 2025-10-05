@@ -6,6 +6,8 @@ from typing import Dict, Any, List, Set
 import shutil
 import yaml
 from crewai.flow import Flow, start, listen
+
+from ..crews.docs_diff.output_format.doc_unified_diff import DOC_UNIFIED_DIFF_SCHEMA
 from .utils import ensure_repo, load_json_output, load_json_list, load_json_object
 from ..crews.project_structure.crew import ProjectStructureCrew
 from ..crews.project_structure.output_format.project_structure import PROJECT_STRUCTURE_SCHEMA
@@ -60,6 +62,9 @@ from ..tools.file_system import (
 )
 from ..tools.rag_tools import DocsRAG
 from .. import settings
+from ..crews.docs_relevance.crew import DocsRelevanceCrew
+from ..crews.docs_relevance.output_format.relevant_docs import RELEVANT_DOCS_SCHEMA
+from ..crews.docs_diff.crew import DocsDiffCrew
 
 
 class IterateFlow(Flow):
@@ -1190,7 +1195,34 @@ class IterateFlow(Flow):
         sorted_indices = unique_path_indices[:settings.TOP_K_DOC_FILES]
         documents = {paths[i]: content[i] for i in sorted_indices}
 
-        return {**inputs}
+        docs_result = DocsRelevanceCrew().crew().kickoff(inputs={
+            "user_prompt": user_prompt,
+            "action_plan": plan_text,
+            "documents": documents,
+        })
+        docs_candidates = load_json_list(docs_result, RELEVANT_DOCS_SCHEMA)
+
+        # Generate unified diffs for documentation per file and apply them
+        for cand in docs_candidates or []:
+            try:
+                cand_abs = Path(cand).resolve() if Path(cand).is_absolute() else (self.repo_dir / cand).resolve()
+                current_content = cand_abs.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+
+            dd_result = DocsDiffCrew().crew().kickoff(inputs={
+                "user_prompt": user_prompt,
+                "action_plan": plan_text,
+                "doc_path": str(cand_abs.relative_to(self.repo_dir)),
+                "document_content": current_content,
+            })
+            unified_diff = load_json_output(dd_result, DOC_UNIFIED_DIFF_SCHEMA)
+            ok, err = apply_combined_unified_diffs(self.repo_dir, self.repo_dir, {str(cand_abs): [unified_diff]})
+            if not ok:
+                # best-effort; carry error message in execution summary pattern
+                pass
+
+        return {**inputs, "docs_candidates": docs_candidates}
 
     def run(self, user_prompt: str, repo: str) -> Dict[str, Any]:
         """Convenience method for CLI integration."""

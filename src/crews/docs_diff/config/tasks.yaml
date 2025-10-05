@@ -1,0 +1,38 @@
+generate_docs_diffs:
+  description: >
+
+    User prompt:
+    """
+    {user_prompt}
+    """
+
+    Action plan:
+    """
+    {action_plan}
+    """
+
+    Current content:
+    ```
+    {document_content}
+    ```
+
+    Goal:
+    Generate a unified diff (patch) to update this document according to the user's
+    request and the action plan. Keep changes minimal and targeted.
+
+    Requirements:
+      - The diff must target exactly the provided document path.
+      - Do not create or delete files; only modify content.
+      - Preserve formatting and front matter if present.
+
+    The unified diff headers MUST use the form `--- a/{doc_path}` and
+    `+++ b/{doc_path}`. Respect the line breaks in the diff after the headers.
+
+    IMPORTANT: The diff must be a valid unified diff (patch) that `git apply` accepts.
+      If no change is needed, return an empty string.
+
+  expected_output: >
+    Output JSON format:
+    {"root": str}
+    Output only compact JSON, no surrounding prose.
+  agent: docs_diff_engineer
