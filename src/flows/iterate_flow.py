@@ -211,12 +211,15 @@ class IterateFlow(Flow):
     def _load_setup_cfg_toggle(self) -> None:
         """
         Read optional [pydev] toggle from setup.cfg in the target repo to control
-        whether IterateFlow should perform unit-test related steps.
+        whether IterateFlow should perform unit-test related steps and
+        documentation update steps.
 
         Supported keys under [pydev] (first found wins):
           - iterateflow_tests
           - iterateflow_run_tests
           - iterateflow_enable_tests
+          - docs_update (preferred)
+          - docs
         Values are parsed as booleans; default is True when missing/invalid.
         """
         try:
@@ -233,6 +236,14 @@ class IterateFlow(Flow):
                 except Exception:
                     raw = parser.get("pydev", "tests", fallback="true")
                     self.tests_enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+            # Docs update toggle
+            if parser.has_option("pydev", "docs"):
+                try:
+                    value = parser.get("pydev", "docs")
+                    self.docs_update_enabled = str(value).strip().lower() in {"1", "true", "yes", "on"}
+                except Exception:
+                    self.docs_update_enabled = True
         except Exception:
             # Best-effort reader; ignore errors
             pass
@@ -307,6 +318,7 @@ class IterateFlow(Flow):
         self.test_command = None
         self.test_description = None
         self.tests_enabled = True
+        self.docs_update_enabled = True
         self.pydev_dir = (self.repo_dir / ".pydev").resolve()
         self.pydev_dir.mkdir(parents=True, exist_ok=True)
         self.pydev_yaml_path = (self.pydev_dir / "pydev.yaml").resolve()
@@ -1114,6 +1126,8 @@ class IterateFlow(Flow):
     @listen(execute_action_plan)
     def update_documentation(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Update documentation after code changes."""
+        if not getattr(self, "docs_update_enabled", True):
+            return inputs
         if not self.docs_dir:
             return inputs
         # Build a concise query from execution summary (modified files and plan context)

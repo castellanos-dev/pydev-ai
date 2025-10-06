@@ -90,6 +90,13 @@ produce_action_plan:
       - Do NOT define file references that are not coherent with the project structure.
       - Only refer to the project source code, do NOT refer on how the project will be used.
       - Only empty files can be created. The content should be added later.
+      - Every step MUST be self-contained and executable independently; do not rely on information only present in other steps.
+      - Repeat in each step all exact identifiers it needs: setting keys, constants, class/function/method names, and imports, including their file paths as known from the provided context.
+      - If a step uses or introduces a configurable setting, include the exact setting name and the expected value shape (type and example) in that step's description.
+      - Explicitly list dependencies from other files/modules (paths and symbol names) that the step must use/import.
+      - Embed any critical constraints from the user's prompt that apply to the step (e.g., invariants like fields that must always be present) so the step enforces them in isolation.
+      - Do not use vague references like "as above" or "previous step"; later steps must restate any required identifiers and constraints.
+      - Keep descriptions concise but structured; include: Intent, Edits (what/where), Dependencies (imports/settings), Constraints (from user_prompt). Still write plain instructions, not code.
 
     Each step should be properly detailed to be executed independently. The plan
     will be carried out in order.
@@ -114,6 +121,21 @@ produce_action_plan:
       - The output file paths must be absolute. The project source code is in the folder {src_dir}.
       - Do NOT include steps related to git, testing, documentation, etc.
       - KEEP A REDUCED NUMBER OF STEPS.
+
+     Reasoning process:
+       1. Quietly extract must-have constraints from user_prompt (invariants, required fields, prohibitions).
+
+       2. Define the steps. For each step you draft:
+         - Restate exact identifiers (settings keys, constants, class/method names) and required imports with file paths.
+         - Include applicable constraints from user_prompt so the step enforces them in isolation.
+         - Ensure the path exists in project_files and is coherent with summaries/code.
+         - Avoid any reference to previous steps; make the step executable independently.
+
+       3. Validate the plan before returning:
+         - All user_prompt constraints are covered across the steps.
+         - Each step is self-contained; simulate executing it alone and confirm no missing identifiers/dependencies.
+         - Use only allowed step types; keep a minimal, logically ordered set of steps.
+         - Prefer existing identifiers from context; only introduce new ones when explicitly required by user_prompt, and define them clearly within the step.
 
   expected_output: >-
     Output JSON:
