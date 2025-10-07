@@ -33,7 +33,6 @@ from ..crews.development_diff.crew import (
     LeadDevelopmentDiffCrew,
 )
 from ..crews.development_diff.output_format.generate_diffs import GENERATE_DIFFS_SCHEMA
-from ..crews.tests_integrator.crew import TestsIntegratorCrew
 from ..crews.tests_conf.crew import TestsConfCrew
 from ..crews.tests_conf.output_format.tests_conf import TESTS_CONF_SCHEMA
 from ..crews.tests_planning.crew import (
@@ -588,6 +587,7 @@ class IterateFlow(Flow):
             "summaries": {k: relevant_map.get(k, "") for k in summaries_only},
             "code": code_map,
         })
+        # TODO: añadir en el action plan un listado MINIMO de archivos de código que hacen falta para ejecutar el step y cargar el código para ponerlo como input de la implementación. Siempre que sea posible lo óptimo será que no haga falta cargar ningún archivo, es decir, que la lista de archivos sea vacía. Todo esto debe quedar muy claro en la actualización del prompt.
         action_plan = load_json_list(plan_result, ACTION_PLAN_SCHEMA)
 
         return {**inputs, "action_plan": action_plan}
@@ -711,20 +711,20 @@ class IterateFlow(Flow):
             for fp in file_paths:
                 if not _is_py_file_under_src(fp):
                     continue
-                # Prefer path suggested by mapping helper if it exists
+                # Try mirrored location: tests/<same_dir>/test_<module>.py
                 try:
-                    src_rel = str(Path(fp).resolve().relative_to(self.src_dir))
-                    mapped = _map_src_path_to_test_path(src_rel, [])  # type: ignore[arg-type]
-                    if mapped:
-                        tp = (self.repo_dir / mapped).resolve() if not mapped.is_absolute() else mapped
-                        if tp.exists():
+                    src_rel = Path(fp).resolve().relative_to(self.src_dir)
+                    test_file_name = f"test_{src_rel.stem}.py"
+                    for test_dir in self.test_dirs:
+                        candidate = (test_dir / src_rel.parent / test_file_name).resolve()
+                        if candidate.exists() and candidate.is_file():
                             try:
-                                tp.unlink()
+                                candidate.unlink()
                             except Exception:
                                 pass
-                            continue
+                            break
                 except Exception:
-                    pass
+                    continue
 
         def _mirror_tests_create_dirs(dir_paths: List[str]) -> None:
             if not self._should_test_be_modified():
@@ -736,6 +736,20 @@ class IterateFlow(Flow):
                     continue
                 # TODO: añadir en el pydev.yaml un flag de si los tests estan generados como un mirror de los source files
                 # TODO: hace falta una crew que infiera la ruta
+
+        def _get_test_path(src_file: str, test_plan: List[dict]) -> Path | None:
+            """Select an existing test file path relevant to a given source file."""
+            try:
+                test_file = self._select_relevant_test_file(
+                    src_file=src_file,
+                    action_step_detail=test_plan,
+                    test_file_paths=self.test_file_paths,
+                )
+            except Exception:
+                test_file = None
+            if test_file and Path(test_file).exists():
+                return Path(test_file)
+            return None
 
         def _mirror_tests_delete_dirs(dir_paths: List[str], step_plan: List[dict]) -> None:
             if not self._should_test_be_modified():
@@ -755,6 +769,47 @@ class IterateFlow(Flow):
                 return
             target_dir = _get_test_path(src, step_plan)
             # TODO: hacer un mirror para la estructura destino y moverlo
+
+        def _resolve_test_target_info(src_rel_path: str, test_plan: List[dict]) -> tuple[str, str]:
+            """
+            Resolve the target test file path for a given source relative path and test plan.
+            Returns a tuple of (original_test_code, test_file_path_for_llm).
+            The path string is repo-relative when possible, otherwise absolute.
+            """
+            test_target_path: Path | None = None
+            try:
+                src_rel = Path(src_rel_path)
+                test_file_name = f"test_{src_rel.stem}.py"
+                for test_dir in self.test_dirs:
+                    candidate = (test_dir / src_rel.parent / test_file_name).resolve()
+                    if candidate.exists():
+                        test_target_path = candidate
+                        break
+                if test_target_path is None:
+                    # Fallback: let relevance pick a file when exists
+                    chosen = self._select_relevant_test_file(
+                        src_file=str(src_rel_path),
+                        action_step_detail=test_plan,
+                        test_file_paths=self.test_file_paths,
+                    )
+                    if chosen and Path(chosen).exists():
+                        test_target_path = Path(chosen)
+            except Exception:
+                test_target_path = None
+
+            original_test_code = ""
+            test_target_rel_for_llm = ""
+            if test_target_path:
+                try:
+                    original_test_code = test_target_path.read_text(encoding="utf-8")
+                except Exception:
+                    original_test_code = ""
+                try:
+                    # Provide repo-relative path when possible
+                    test_target_rel_for_llm = str(test_target_path.relative_to(self.repo_dir))
+                except Exception:
+                    test_target_rel_for_llm = str(test_target_path)
+            return original_test_code, test_target_rel_for_llm
 
         self.test_file_paths = None
         test_inputs_payload = self._get_test_inputs_payload()
@@ -941,7 +996,8 @@ class IterateFlow(Flow):
                         }}
                         crew_result = test_planner_crew.crew().kickoff(inputs=inputs_payload)
                         tests_plan = load_json_output(crew_result, TEST_PLAN_SCHEMA)
-                        # Aggregate planned tests by original source file (src_file)
+                        # Build per-step grouping of planned tests by source file
+                        step_tests_by_src: Dict[str, Dict[str, List[Any]]] = {}
                         for test_item in tests_plan:
                             try:
                                 src_file = (test_item or {}).get("src_file")
@@ -949,29 +1005,41 @@ class IterateFlow(Flow):
                                 continue
                             if not src_file:
                                 continue
+                            if src_file not in step_tests_by_src:
+                                step_tests_by_src[src_file] = {"test_plan": []}
+                            step_tests_by_src[src_file]["test_plan"].append(test_item)
 
-                            if src_file not in generated_tests_code:
-                                generated_tests_code[src_file] = {'code': [], 'test_plan': []}
-                            generated_tests_code[src_file]['test_plan'].append(test_item)
-
-                        # Implement tests code (return only code snippets, no paths)
-                        impl_inputs = {
-                            "framework": self.test_framework or "",
-                            "test_context": self.test_description or "",
-                            "examples": "\n\n".join(getattr(self, "test_examples", []) or []),
-                            "test_plan": tests_plan,
-                            "src_code": content,
-                            "file_changes": file_changes,
-                        }
-                        impl_result = test_implementer_crew.crew().kickoff(inputs=impl_inputs)
-                        impl_code_list = load_json_output(impl_result, IMPLEMENT_TESTS_SCHEMA)
-                        for item in impl_code_list or []:
+                        # Implement tests producing unified diffs and apply them directly per source file
+                        for src_rel_path, group in step_tests_by_src.items():
                             try:
-                                code_str = (item or {}).get("code")
-                            except AttributeError:
-                                continue
-                            if code_str:
-                                generated_tests_code[src_file]['code'].append(code_str)
+                                src_abs = (self.src_dir / src_rel_path).resolve()
+                                src_code_for_file = src_abs.read_text(encoding="utf-8")
+                            except Exception:
+                                src_code_for_file = ""
+
+                            # Determine target test file info and read original content
+                            original_test_code, test_target_rel_for_llm = _resolve_test_target_info(
+                                src_rel_path, group['test_plan']
+                            )
+
+                            impl_inputs = {
+                                "framework": self.test_framework or "",
+                                "test_context": self.test_description or "",
+                                "examples": "\n\n".join(getattr(self, "test_examples", []) or []),
+                                "test_plan": group['test_plan'],
+                                "src_code": src_code_for_file,
+                                "file_changes": file_changes,
+                                "original_test_code": original_test_code,
+                                "test_file_path": test_target_rel_for_llm,
+                            }
+                            impl_result = test_implementer_crew.crew().kickoff(inputs=impl_inputs)
+                            test_diffs = load_json_output(impl_result, IMPLEMENT_TESTS_SCHEMA)
+                            if test_diffs:
+                                ok, err = apply_combined_unified_diffs(
+                                    self.repo_dir, self.repo_dir, {
+                                        test_target_rel_for_llm: [test_diffs],
+                                    }
+                                )
 
                 else:
                     errors.append({
@@ -1000,95 +1068,7 @@ class IterateFlow(Flow):
             except Exception:
                 pass
 
-        # --- Integrate generated unit tests into mirrored test files ---
-        def _map_src_path_to_test_path(src_path: str, test_plan: List[dict]) -> Path | None:
-            """
-            Given a repo-relative source path (under src_dir), return a tuple of
-            (chosen_test_root, repo-relative test file path under that root) using
-            a mirror strategy: tests/<same_dir>/test_<module>.py
-            Prefer an existing file if found.
-            """
-            try:
-                src_path = Path(src_path).relative_to(self.src_dir)
-                test_path_dir = src_path.parent
-                test_file_name = f"test_{src_path.stem}.py"
-                for test_dir in self.test_dirs:
-                    candidate_path = test_dir / test_path_dir / test_file_name
-                    if candidate_path.exists():
-                        return candidate_path
-            except Exception:
-                pass
-            return _get_test_path(src_path, test_plan)
 
-        def _get_test_path(src_file: str, test_plan: List[dict]) -> Path | None:
-            test_file = self._select_relevant_test_file(
-                src_file=src_file,
-                action_step_detail=test_plan,
-                test_file_paths=self.test_file_paths,
-            )
-            if Path(test_file).exists():
-                return Path(test_file)
-            return None
-
-        def _collect_nearby_fixtures(test_file: Path) -> str:
-            """
-            Collect fixture definitions from closest conftest.py upwards to test_root.
-            """
-            current = test_file
-            walked = set()
-            collected: list[str] = []
-            while True:
-                try:
-                    if current in walked:
-                        break
-                    walked.add(current)
-                    conf = (current / "conftest.py").resolve()
-                    if conf.exists() and conf.is_file():
-                        try:
-                            collected.append(conf.read_text(encoding="utf-8"))
-                        except Exception:
-                            pass
-                    if current in self.test_dirs:
-                        break
-                    current = current.parent
-                except Exception:
-                    break
-            return "\n\n".join(collected)
-
-        if self._should_test_be_modified() and generated_tests_code:
-            for src_rel, snippets in generated_tests_code.items():
-                if 'code' not in snippets or not snippets['code']:
-                    continue
-                if 'test_plan' not in snippets or not snippets['test_plan']:
-                    continue
-                # Determine test file location by mirroring src path
-                test_file = _map_src_path_to_test_path(src_rel, snippets['test_plan'])
-                if not test_file:
-                    continue
-                try:
-                    original_test_code = test_file.read_text(encoding="utf-8")
-                except Exception:
-                    continue
-                # Collect nearest fixtures
-                fixtures_text = _collect_nearby_fixtures(test_file)
-
-                # Integrate using advanced tests integrator crew (now returns unified diffs)
-                ti_result = TestsIntegratorCrew().crew().kickoff(inputs={
-                    "framework": self.test_framework or "",
-                    "original_test_code": original_test_code,
-                    "generated_tests_code": snippets,
-                    "available_fixtures": fixtures_text,
-                })
-                test_file_diffs = load_json_output(ti_result, GENERATE_DIFFS_SCHEMA, 0)
-                extracted_test_diffs = extract_diffs_by_file(test_file_diffs)
-                # Apply diff to tests via the same git-apply helper
-                ok, err = apply_combined_unified_diffs(self.repo_dir, self.src_dir, extracted_test_diffs)
-                if not ok:
-                    errors.append({
-                        "step": "Integrate tests",
-                        "type": "git apply",
-                        "error": err,
-                    })
 
         # Regenerate module summaries (_module.yaml) for affected modules
         for module_rel in sorted(modules_to_refresh, key=lambda p: str(p)):

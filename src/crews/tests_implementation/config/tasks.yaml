@@ -11,6 +11,11 @@ implement_tests:
     {file_changes}
     ```
 
+    Existing target test file content (may be empty if new file):
+    ```
+    {original_test_code}
+    ```
+
     =================================
 
     Test framework: {framework}
@@ -29,26 +34,33 @@ implement_tests:
     =================================
 
     Goal:
-    Generate the pytest test code for the planned tests. Return test function
-    code blocks ready to be integrated in the existing test files.
+      Generate unified diffs for the test file to implement the planned tests.
+      The result must be a valid unified diff that applies cleanly to the existing
+      test file content provided above. If the file does not exist yet, create a
+      diff that adds a new file with the complete content.
 
     Requirements:
-      - For each test, produce one concise string
-        containing imports and the corresponding test function.
+      - Prefer adding or updating within the existing test module structure.
       - Keep tests minimal and deterministic. Prefer parametrization when
         it simplifies cases.
       - Avoid duplication.
       - Use the reference examples ONLY as structural guidance (fixtures used, parametrization patterns, assertion styles, common helpers). Do not copy irrelevant details.
       - Do not include "..." in generated tests. The "..." appears only in the examples to indicate omitted parts.
 
-    IMPORTANT: Output ONLY the code for new unit tests.
+    The diff MUST be a valid unified diff applying to the given file path, with
+    correct file headers and context. If no change is needed for a file, omit it.
+    The unified diff headers MUST use the form `--- a/{test_file_path}` and
+    `+++ b/{test_file_path}` (no leading slash).
+
+    Reasoning process:
+      1. Analyze the existing test file content and the planned tests. Keep the minimal number of tests.
+      2. Determine the current fixtures that can be reused.
+      3. Determine if a new fixture is needed.
+      4. Determine the changes needed to implement the planned tests. Keep the current structure of the test file.
+      5. Generate the unified diffs for the test file.
 
   expected_output: >
     Output JSON format:
-    {"root": [
-      {
-        "code": str
-      }
-    ]}
+    {"root": str}
     Use compact language. Do not add prose outside JSON.
   agent: test_implementer

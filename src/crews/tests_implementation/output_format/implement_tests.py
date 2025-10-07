@@ -4,15 +4,9 @@ from pydantic import BaseModel, RootModel
 
 
 IMPLEMENT_TESTS_SCHEMA = '''
-[
-  {"code": str}
-]
+str
 '''
 
 
-class TestCode(BaseModel):
-    code: str
-
-
-class ImplementTestsOutput(RootModel[List[TestCode]]):
+class ImplementTestsOutput(RootModel[str]):
     pass
