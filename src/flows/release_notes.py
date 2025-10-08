@@ -209,9 +209,6 @@ def update_release_notes(
     """Best-effort release notes update (idempotent)."""
     try:
         rn_path = _find_release_notes_file(repo_dir=repo_dir, docs_dir=docs_dir)
-        print('**********************************************************')
-        print('rn_path', rn_path)
-        print('**********************************************************')
         if not rn_path:
             return
 
@@ -245,9 +242,6 @@ def update_release_notes(
             user_prompt=user_prompt,
             action_plan=plan_text,
         )
-        print('**********************************************************')
-        print(unified_diff)
-        print('**********************************************************')
         if unified_diff:
             apply_combined_unified_diffs(repo_dir, repo_dir, {str(rn_path): [unified_diff]})
     except Exception:

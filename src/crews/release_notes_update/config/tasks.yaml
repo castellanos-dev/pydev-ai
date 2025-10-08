@@ -22,6 +22,7 @@ update_release_notes:
     Requirements:
     - Keep the file format of the current release notes content. Convert the unformatted date to a formatted date.
     - Keep changes minimal.
+    - Do not remove existing sections of the release notes content unless they are no longer relevant.
 
     IMPORTANT:
     - Produce a VALID unified diff (patch) that `git apply` accepts.
